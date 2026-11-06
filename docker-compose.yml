@@ -1,0 +1,28 @@
+# 로컬 개발용 MySQL. 사용 전 .env.example 을 .env 로 복사해 값을 채운다
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: didrakon-iam-mysql
+    ports:
+      - "${MYSQL_PORT:-3307}:3306"
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-iam}
+      MYSQL_USER: ${MYSQL_USER:?MYSQL_USER is required}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
+      TZ: Asia/Seoul
+    command:
+      - --default-time-zone=Asia/Seoul
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    volumes:
+      - mysql-data:/var/lib/mysql
+    # 최초 기동 시 초기화가 끝나 TCP 접속이 가능해질 때 healthy 가 된다
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+volumes:
+  mysql-data:

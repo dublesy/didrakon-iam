@@ -1,0 +1,16 @@
+# 테스트는 같은 IP 에서 짧은 시간에 로그인을 많이 하므로 호출 수 제한을 끈다 (제한 자체는 RateLimitTests 가 단위로 검사)
+iam:
+  # 스케줄 작업(만료·webhook)은 테스트가 직접 부른다. TestcontainersConfiguration 의 동적 속성은 조건 평가보다 늦어 여기서 끈다
+  scheduling:
+    enabled: false
+  rate-limit:
+    enabled: false
+  # IP 국가 판별: GeoIP DB 없이 문서용 대역(TEST-NET-3)만 미국으로 둔다. 다른 IP 는 국가를 모른다
+  risk:
+    ip-country-overrides:
+      "[203.0.113.0/24]": US
+  # 전달 작업은 테스트가 직접 부른다. 스케줄러가 테스트 중에 커밋된 전달을 보내지 않도록 주기를 길게 둔다
+  webhook:
+    interval: PT24H
+    # 받는 쪽 테스트 서버가 127.0.0.1 에 뜬다. 내부망 차단 자체는 WebhookAddressGuardTests 가 단위로 검사
+    allow-private-network: true

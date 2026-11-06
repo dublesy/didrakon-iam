@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('내 계정')}"></head>
+<body class="tall">
+<div th:replace="~{fragments :: brand}"></div>
+<main class="card account">
+  <h1><span th:text="${name}">홍길동</span>님, 로그인되어 있습니다</h1>
+  <p class="lead">쓰던 시스템이 있다면 그곳으로 돌아가세요. 이 화면에서는 내 앱으로 이동하고 계정 보안을 확인합니다</p>
+
+  <p th:if="${info}" class="message info" role="status" th:text="${info}">안내</p>
+
+  <section aria-labelledby="apps-title">
+    <h2 id="apps-title">내 앱</h2>
+    <ul class="apps" th:unless="${apps.isEmpty()}">
+      <li th:each="a : ${apps}">
+        <a th:href="${a.url}" rel="noopener">
+          <span class="app-icon" th:text="${a.initial}" aria-hidden="true">E</span>
+          <span th:text="${a.name}">ERP</span>
+        </a>
+      </li>
+    </ul>
+    <p class="hint" th:if="${apps.isEmpty()}">바로가기가 등록된 앱이 없습니다. 관리자가 클라이언트에 앱 시작 주소를 넣으면 여기에 나옵니다</p>
+  </section>
+
+  <section aria-labelledby="security-title">
+    <h2 id="security-title">계정 보안</h2>
+    <ul class="links">
+      <li><a th:href="@{/account/passkeys}">패스키 <span class="meta">비밀번호 없이 지문·PIN·보안 키로 로그인</span></a></li>
+      <li><a th:href="${consoleUrl} + '/mfa'">2단계 인증 <span class="meta">인증 앱 등록·삭제</span></a></li>
+      <li><a th:href="${consoleUrl} + '/'">내 정보·비밀번호 변경 <span class="meta">관리 콘솔에서 엽니다. 관리자라면 관리 메뉴도 여기 있습니다</span></a></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="sessions-title">
+    <h2 id="sessions-title">로그인된 기기</h2>
+    <ul class="rows">
+      <li th:each="s : ${sessions}">
+        <div>
+          <p class="name"><span th:text="${s.device}">Chrome · macOS</span> <span th:if="${s.current}" class="badge">지금 이 기기</span></p>
+          <p class="meta"><span th:text="${s.ipAddress}">127.0.0.1</span> · 로그인 <span th:text="${s.loginAt}">-</span> · 최근 활동 <span th:text="${s.lastActivityAt}">-</span></p>
+        </div>
+      </li>
+    </ul>
+    <form method="post" th:action="@{/account/sessions/revoke-others}" th:if="${sessions.size() > 1}"
+          data-confirm="이 기기를 뺀 다른 기기에서 모두 로그아웃할까요? 그 기기에서 쓰던 시스템도 로그아웃됩니다.">
+      <button type="submit" class="outline">다른 기기에서 모두 로그아웃</button>
+    </form>
+    <p class="hint" th:if="${sessions.size() <= 1}">이 기기에서만 로그인되어 있습니다</p>
+  </section>
+
+  <section aria-labelledby="activity-title">
+    <h2 id="activity-title">최근 로그인 기록</h2>
+    <ul class="rows">
+      <li th:each="e : ${activities}">
+        <div>
+          <p class="name"><span th:text="${e.label}" th:classappend="${e.ok} ? '' : 'warn'">로그인</span></p>
+          <p class="meta"><span th:text="${e.at}">-</span> · <span th:text="${e.device}">-</span> · <span th:text="${e.ipAddress}">-</span></p>
+        </div>
+      </li>
+    </ul>
+    <p class="hint">모르는 기록이 있으면 비밀번호를 바꾸고 다른 기기에서 모두 로그아웃한 뒤 관리자에게 알리세요</p>
+  </section>
+
+  <form method="post" th:action="@{/logout}" class="secondary">
+    <button type="submit">로그아웃</button>
+  </form>
+</main>
+<p th:replace="~{fragments :: footer}"></p>
+<script th:src="@{/iam-login/passkey.js}" defer></script>
+</body>
+</html>

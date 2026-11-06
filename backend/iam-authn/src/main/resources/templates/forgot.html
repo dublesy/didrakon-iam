@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('비밀번호 재설정')}"></head>
+<body>
+<div th:replace="~{fragments :: brand}"></div>
+<main class="card">
+  <h1>비밀번호 재설정</h1>
+  <p class="lead">등록한 인증 앱의 6자리 코드로 본인을 확인한 뒤 새 비밀번호를 정합니다. 잠긴 계정도 풀립니다</p>
+
+  <p th:if="${error}" class="message error" role="alert" th:text="${error}">오류</p>
+
+  <form method="post" th:action="@{/login/forgot}">
+    <label>로그인 ID
+      <input name="loginId" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+    </label>
+    <label>인증 코드
+      <input class="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+             autocomplete="one-time-code" required>
+    </label>
+    <button type="submit">확인</button>
+  </form>
+
+  <p class="secondary"><a th:href="@{/login}">로그인으로 돌아가기</a></p>
+</main>
+<p th:replace="~{fragments :: footer}"></p>
+</body>
+</html>

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('2단계 인증')}"></head>
+<body>
+<div th:replace="~{fragments :: brand}"></div>
+<main class="card">
+  <h1>2단계 인증</h1>
+  <p class="lead">인증 앱에 표시된 6자리 코드를 입력하세요</p>
+
+  <p th:if="${error}" class="message error" role="alert">
+    코드가 맞지 않거나 이미 사용한 코드입니다. 다음 코드가 나오면 다시 입력하세요.
+  </p>
+
+  <form method="post" th:action="@{/login/mfa}">
+    <label>인증 코드
+      <input class="code" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+             autocomplete="one-time-code" required autofocus>
+    </label>
+    <button type="submit">확인</button>
+  </form>
+
+  <form method="post" th:action="@{/logout}" class="secondary">
+    <button type="submit">다른 계정으로 로그인</button>
+  </form>
+</main>
+<p th:replace="~{fragments :: footer}"></p>
+</body>
+</html>

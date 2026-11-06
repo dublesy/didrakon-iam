@@ -1,0 +1,28 @@
+.env
+.DS_Store
+.idea/
+*.iml
+.vscode/
+
+# backend
+backend/.gradle/
+backend/.kotlin/
+backend/build/
+backend/*/build/
+
+# 연동 예제: 로컬 검증용 비밀값, 각 예제의 빌드·의존성 결과물
+examples/integration/.env.local
+examples/integration/**/node_modules/
+examples/integration/**/.next/
+examples/integration/**/target/
+examples/integration/**/build/
+examples/integration/**/bin/
+examples/integration/**/obj/
+examples/integration/**/vendor/
+examples/integration/**/.venv/
+examples/integration/**/__pycache__/
+examples/integration/**/.gradle/
+examples/integration/**/*.db
+
+# 개인 작업 환경 (Claude Code)
+CLAUDE.local.md

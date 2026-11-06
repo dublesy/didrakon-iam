@@ -1,0 +1,7 @@
+source "https://rubygems.org"
+
+gem "sinatra", "4.2.1"
+gem "rackup", "2.3.1"
+gem "puma", "8.0.2"
+gem "openid_connect", "2.5.0" # nov/openid_connect: discovery, 인가 URL, 토큰 교환, ID 토큰 검증
+gem "jwt", "3.3.0"            # back-channel logout_token 검증

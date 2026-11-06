@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('로그인')}"></head>
+<body class="entry">
+<div th:replace="~{fragments :: brand}"></div>
+<main class="card">
+  <h1>로그인</h1>
+  <p class="lead">계정으로 로그인하세요</p>
+
+  <p th:if="${error}" class="message error" role="alert" th:text="${error}">오류</p>
+  <p th:if="${info}" class="message info" role="status" th:text="${info}">안내</p>
+
+  <!-- th:action 이 CSRF 토큰을 넣는다 -->
+  <form method="post" th:action="@{/login}">
+    <label>로그인 ID
+      <input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus
+             th:value="${username}">
+    </label>
+    <label>비밀번호
+      <input name="password" type="password" autocomplete="current-password" required>
+    </label>
+    <button type="submit">로그인</button>
+  </form>
+
+  <!-- 패스키를 지원하는 브라우저에서만 passkey.js 가 보인다 -->
+  <div class="passkey" data-passkey-login hidden
+       th:attr="data-csrf-header=${_csrf.headerName},data-csrf-token=${_csrf.token}"
+       th:data-options="@{/webauthn/authenticate/options}" th:data-submit="@{/login/webauthn}">
+    <p class="divider"><span>또는</span></p>
+    <p class="message error" role="alert" data-passkey-error hidden></p>
+    <button type="button" class="outline">패스키로 로그인</button>
+  </div>
+
+  <p class="secondary"><a th:href="@{/login/forgot}">비밀번호를 잊으셨나요?</a></p>
+</main>
+<p th:replace="~{fragments :: footer}"></p>
+<script th:src="@{/iam-login/passkey.js}" defer></script>
+</body>
+</html>

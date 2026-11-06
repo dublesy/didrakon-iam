@@ -1,0 +1,16 @@
+{
+    "name": "didrakon/iam-sample-php",
+    "description": "DIDRAKON IAM 연동 예제 (PHP + jumbojett/openid-connect-php)",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.3",
+        "ext-curl": "*",
+        "ext-pdo_sqlite": "*",
+        "jumbojett/openid-connect-php": "1.0.2"
+    },
+    "config": {
+        "platform": { "php": "8.3.0" },
+        "sort-packages": true
+    }
+}

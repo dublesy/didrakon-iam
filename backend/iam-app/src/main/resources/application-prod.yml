@@ -1,0 +1,9 @@
+# 운영 프로필. 공통 설정(application.yml)에 덧붙는다
+server:
+  # 로드밸런서·리버스 프록시 뒤에서 실제 클라이언트 IP(X-Forwarded-For)를 쓴다.
+  # Tomcat 은 내부 프록시(사설 IP 대역)가 보낸 헤더만 믿는다. 프록시 IP 가 다르면 server.tomcat.remoteip.internal-proxies 를 맞춘다
+  forward-headers-strategy: native
+iam:
+  authn:
+    # 재기동·여러 인스턴스에서도 같은 키로 서명·검증해야 하므로 고정 키가 없으면 기동하지 않는다
+    require-persistent-jwt-key: true

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<!-- 로그인 화면 공통 조각. 브랜드 이름·로고 문구는 여기서 바꾼다 -->
+<head th:fragment="head(title)">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title th:text="${title} + ' · DIDRAKON IAM'">DIDRAKON IAM</title>
+  <link rel="icon" type="image/svg+xml" th:href="@{/iam-login/icon.svg}">
+  <link rel="stylesheet" th:href="@{/iam-login/login.css}">
+</head>
+<body>
+<!-- 마크: 마주 보는 두 용(인증·인가)이 열쇠 구멍(문)을 지킨다. 콘솔 brand-mark.tsx 와 같은 모양 -->
+<div th:fragment="brand" class="brand">
+  <svg class="mark" viewBox="0 0 32 32" fill="currentColor" aria-hidden="true">
+    <g class="dragon-left"><path d="M7.2 28.6C7 24 4.4 20.5 5.2 15.2 5.8 11.6 7.4 9.4 8.6 8.2L6.6 3.6 10.6 6.6 14.8 7.6 15 8.8 12.4 9.2 14.2 10.4 11.4 10.8C9.6 11.6 8.4 13.2 8.1 15.4 7.6 19.6 9.6 23.4 9.4 28.6Q8.3 29.4 7.2 28.6ZM5.3 20.2 2.5 19.3 4.9 17.6ZM5.5 14.6 3 13 5.9 12.2Z"/><circle class="eye" cx="10.5" cy="7.9" r=".6"/></g>
+    <g class="dragon-right"><g transform="matrix(-1 0 0 1 32 0)"><path d="M7.2 28.6C7 24 4.4 20.5 5.2 15.2 5.8 11.6 7.4 9.4 8.6 8.2L6.6 3.6 10.6 6.6 14.8 7.6 15 8.8 12.4 9.2 14.2 10.4 11.4 10.8C9.6 11.6 8.4 13.2 8.1 15.4 7.6 19.6 9.6 23.4 9.4 28.6Q8.3 29.4 7.2 28.6ZM5.3 20.2 2.5 19.3 4.9 17.6ZM5.5 14.6 3 13 5.9 12.2Z"/><circle class="eye" cx="10.5" cy="7.9" r=".6"/></g></g>
+    <g class="keyhole"><circle cx="16" cy="17.4" r="2.3"/><path d="M15.1 18.8h1.8l.6 4.4h-3z"/></g>
+  </svg>
+  <p class="wordmark">DIDRAKON IAM</p>
+</div>
+<p th:fragment="footer" class="footer">로그인 시도는 보안 기록에 남습니다. 계정 문의는 관리자에게</p>
+</body>
+</html>

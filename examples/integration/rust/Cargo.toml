@@ -1,0 +1,17 @@
+[package]
+name = "didrakon-sample-rust"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+axum = "0.8"
+axum-extra = { version = "0.10", features = ["cookie"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
+jsonwebtoken = "9"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

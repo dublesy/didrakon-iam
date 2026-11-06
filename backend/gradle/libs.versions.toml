@@ -1,0 +1,23 @@
+[versions]
+kotlin = "2.4.20"
+ksp = "2.3.12"
+spring-boot = "4.1.2"
+spring-dependency-management = "1.1.7"
+querydsl = "7.7"
+shedlock = "7.9.0"
+geoip2 = "4.2.1"
+
+[libraries]
+querydsl-jpa = { module = "io.github.openfeign.querydsl:querydsl-jpa", version.ref = "querydsl" }
+querydsl-ksp-codegen = { module = "io.github.openfeign.querydsl:querydsl-ksp-codegen", version.ref = "querydsl" }
+shedlock-spring = { module = "net.javacrumbs.shedlock:shedlock-spring", version.ref = "shedlock" }
+shedlock-jdbc = { module = "net.javacrumbs.shedlock:shedlock-provider-jdbc-template", version.ref = "shedlock" }
+geoip2 = { module = "com.maxmind.geoip2:geoip2", version.ref = "geoip2" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+kotlin-jpa = { id = "org.jetbrains.kotlin.plugin.jpa", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+spring-dependency-management = { id = "io.spring.dependency-management", version.ref = "spring-dependency-management" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

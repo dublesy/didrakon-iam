@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head th:replace="~{fragments :: head('패스키')}"></head>
+<body>
+<div th:replace="~{fragments :: brand}"></div>
+<main class="card wide">
+  <h1>패스키</h1>
+  <p class="lead">비밀번호 대신 이 기기의 생체 인증이나 PIN, 보안 키로 로그인합니다. 패스키 로그인은 2단계 인증을 거친 것으로 봅니다.</p>
+
+  <p th:if="${info}" class="message info" role="status" th:text="${info}">안내</p>
+
+  <th:block th:unless="${canManage}">
+    <p class="message error" role="alert">
+      패스키를 등록하려면 먼저 2단계 인증(인증 앱)을 등록해야 합니다. 관리 콘솔의 2단계 인증 화면에서 인증 앱을 등록한 뒤 다시 로그인하세요.
+    </p>
+  </th:block>
+
+  <th:block th:if="${canManage}">
+    <ul class="passkeys" th:unless="${passkeys.isEmpty()}">
+      <li th:each="p : ${passkeys}">
+        <div>
+          <p class="name" th:text="${p.label}">업무용 노트북</p>
+          <p class="meta">등록 <span th:text="${p.createdAt}">-</span> · 마지막 사용 <span th:text="${p.lastUsedAt}">-</span></p>
+        </div>
+        <form method="post" th:action="@{/account/passkeys/{id}/delete(id=${p.credentialId})}"
+              data-confirm="이 패스키를 삭제할까요? 그 기기로는 패스키 로그인을 할 수 없습니다.">
+          <button type="submit" class="text">삭제</button>
+        </form>
+      </li>
+    </ul>
+    <p class="hint" th:if="${passkeys.isEmpty()}">아직 등록한 패스키가 없습니다</p>
+
+    <p class="hint" data-passkey-unsupported hidden>이 브라우저는 패스키를 지원하지 않습니다</p>
+    <!-- 패스키를 지원하는 브라우저에서만 passkey.js 가 보인다 -->
+    <form class="passkey-register" data-passkey-register hidden
+          th:attr="data-csrf-header=${_csrf.headerName},data-csrf-token=${_csrf.token}"
+          th:data-options="@{/webauthn/register/options}" th:data-submit="@{/webauthn/register}"
+          th:data-done="@{/account/passkeys(added)}">
+      <p class="message error" role="alert" data-passkey-error hidden></p>
+      <label>패스키 이름
+        <input name="label" maxlength="100" required placeholder="예: 업무용 노트북">
+      </label>
+      <button type="submit">패스키 추가</button>
+    </form>
+  </th:block>
+
+  <form method="post" th:action="@{/logout}" class="secondary">
+    <button type="submit">로그아웃</button>
+  </form>
+</main>
+<p th:replace="~{fragments :: footer}"></p>
+<script th:src="@{/iam-login/passkey.js}" defer></script>
+</body>
+</html>

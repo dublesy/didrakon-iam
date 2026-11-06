@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "iam-backend",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd backend && set -a && source ../.env && set +a && ./gradlew :iam-app:bootRun"],
+      "port": 8080
+    },
+    {
+      "name": "admin-console",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd admin && pnpm dev"],
+      "port": 3000
+    }
+  ]
+}
