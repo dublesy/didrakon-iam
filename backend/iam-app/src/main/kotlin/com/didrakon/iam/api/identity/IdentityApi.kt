@@ -123,7 +123,8 @@ class UserRegistrationService(
         val user = userService.create(
             request.empNo, request.name, request.email, request.phone, request.hireDate, request.userKind, request.primaryOrgId,
         )
-        if (request.loginId != null) accountService.createAccount(user.requireId(), request.loginId, request.password.orEmpty())
+        // 관리자가 정한 첫 비밀번호이므로 로그인 계정 만들기와 같이 다음 로그인에서 본인이 바꾸게 한다
+        if (request.loginId != null) accountService.createAccountByAdmin(user.requireId(), request.loginId.trim(), request.password.orEmpty())
         return user
     }
 }

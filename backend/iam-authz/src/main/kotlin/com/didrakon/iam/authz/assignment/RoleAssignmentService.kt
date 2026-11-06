@@ -122,7 +122,7 @@ class RoleAssignmentService(
         val role = roleRepository.findByIdOrNull(roleId) ?: throw NotFoundException("역할", roleId)
         if (!role.isActive) throw BusinessRuleException("비활성 역할은 부여할 수 없습니다: ${role.roleCode}")
         if (!scopeRepository.existsById(scopeId)) throw NotFoundException("scope", scopeId)
-        val request = GrantRequest(subjectId, roleId, scopeId, sourceType)
+        val request = GrantRequest(subjectId, roleId, scopeId, sourceType, validFrom, validUntil)
         grantGuards.orderedStream().forEach { it.check(request) }
 
         val assignment = assignmentRepository.save(
@@ -190,8 +190,15 @@ enum class RoleChangeType { ASSIGN, REVOKE, MODIFY, REVIEW, EXPIRE }
 
 private val PROCEDURE_SOURCES = setOf(AssignmentSourceType.JIT, AssignmentSourceType.DELEGATION, AssignmentSourceType.BREAK_GLASS)
 
-/** 부여하려는 할당 */
-data class GrantRequest(val subjectId: Long, val roleId: Long, val scopeId: Long, val sourceType: AssignmentSourceType)
+/** 부여하려는 할당. [validFrom] 이 null 이면 지금부터, [validUntil] 이 null 이면 기한 없음 */
+data class GrantRequest(
+    val subjectId: Long,
+    val roleId: Long,
+    val scopeId: Long,
+    val sourceType: AssignmentSourceType,
+    val validFrom: Instant? = null,
+    val validUntil: Instant? = null,
+)
 
 /**
  * 할당 생성 직전 검사. 위반이면 예외를 던져 부여(와 그 부여를 일으킨 변경 전체)를 취소한다.

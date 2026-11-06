@@ -5,6 +5,7 @@ import com.didrakon.iam.common.event.AdminChangeEvent
 import com.didrakon.iam.authz.assignment.AssignmentSourceType
 import com.didrakon.iam.authz.assignment.GrantRequest
 import com.didrakon.iam.authz.assignment.RoleAssignmentRepository
+import com.didrakon.iam.authz.assignment.RoleAssignmentService
 import com.didrakon.iam.authz.assignment.RoleGrantGuard
 import com.didrakon.iam.authz.role.RoleRepository
 import com.didrakon.iam.common.RiskLevel
@@ -132,6 +133,13 @@ class RoleConflictException(
 
     fun isEffectiveAt(now: Instant): Boolean = isActive && !validFrom.isAfter(now) && (validUntil?.isAfter(now) ?: true)
 
+    /** [from]~[until] 기간 전체를 덮는가. 기한 없는 할당은 기한 없는 예외만 덮는다 (예외가 끝난 뒤까지 충돌 역할이 남지 않게) */
+    fun covers(from: Instant, until: Instant?): Boolean {
+        if (!isActive || validFrom.isAfter(from)) return false
+        val end = validUntil ?: return true
+        return until != null && !until.isAfter(end) && end.isAfter(from)
+    }
+
     internal fun end(now: Instant) {
         validUntil = now
     }
@@ -168,21 +176,31 @@ class SodGuard(
 ) : RoleGrantGuard {
     override fun check(request: GrantRequest) {
         if (request.sourceType == AssignmentSourceType.BREAK_GLASS) return
-        violation(request.subjectId, request.roleId)?.let { conflictingRoleId ->
+        violation(request.subjectId, request.roleId, request.validFrom, request.validUntil)?.let { conflictingRoleId ->
             val codes = roleRepository.findAllById(listOf(request.roleId, conflictingRoleId)).associate { it.requireId() to it.roleCode }
-            throw BusinessRuleException("직무 분리 위반: ${codes[request.roleId]} 역할은 ${codes[conflictingRoleId]} 역할과 함께 가질 수 없습니다")
+            throw BusinessRuleException(
+                "직무 분리 위반: ${codes[request.roleId]} 역할은 ${codes[conflictingRoleId]} 역할과 함께 가질 수 없습니다 " +
+                    "(승인된 예외가 있으면 예외 기간 안으로 종료 시각을 정하세요)",
+            )
         }
     }
 
-    /** 충돌하는 역할 ID. 없으면 null */
-    fun violation(subjectId: Long, roleId: Long): Long? {
+    /**
+     * [from]~[until] 기간에 [roleId] 를 주면 부딪히는 충돌 역할 ID. 없으면 null.
+     * 지금 가진 역할뿐 아니라 곧 받을 역할(시작 전인 위임·JIT)도 기간이 겹치면 센다. 빼고 보면 두 역할을 미래 시작으로 따로 받아 함께 가질 수 있다.
+     * 예외는 이 기간 전체를 덮을 때만 인정한다
+     */
+    fun violation(subjectId: Long, roleId: Long, from: Instant? = null, until: Instant? = null): Long? {
         val now = clock.instant()
+        val start = maxOf(from ?: now, now)
         val conflicts = conflictRepository.findActiveInvolving(roleId)
         if (conflicts.isEmpty()) return null
-        val heldRoles = assignmentRepository.findEffective(subjectId, now).map { it.roleId }.toSet()
+        val heldRoles = assignmentRepository.findCurrentOrUpcoming(subjectId, now)
+            .filter { it.validFrom.isBefore(until ?: Instant.MAX) && start.isBefore(it.validUntil ?: Instant.MAX) }
+            .map { it.roleId }.toSet()
         return conflicts.firstOrNull { conflict ->
             conflict.otherRole(roleId) in heldRoles &&
-                exceptionRepository.findByConflictIdAndSubjectId(conflict.requireId(), subjectId).none { it.isEffectiveAt(now) }
+                exceptionRepository.findByConflictIdAndSubjectId(conflict.requireId(), subjectId).none { it.covers(start, until) }
         }?.otherRole(roleId)
     }
 }
@@ -192,6 +210,8 @@ class SodGuard(
 class RoleConflictService(
     private val conflictRepository: RoleConflictRepository,
     private val exceptionRepository: RoleConflictExceptionRepository,
+    private val assignmentRepository: RoleAssignmentRepository,
+    private val assignmentService: RoleAssignmentService,
     private val roleRepository: RoleRepository,
     private val subjectRepository: SubjectRepository,
     private val eventPublisher: ApplicationEventPublisher,
@@ -219,7 +239,11 @@ class RoleConflictService(
 
     private fun snapshot(c: RoleConflict) = mapOf("severity" to c.severity.name, "description" to c.description)
 
-    /** 예외를 지금 끝낸다. 이력이 남도록 지우지 않는다 */
+    /**
+     * 예외를 지금 끝낸다. 이력이 남도록 지우지 않는다.
+     * 예외 덕에 받은 충돌 역할(예외가 시작된 뒤 직접 받은 것 중 가장 나중 것)도 회수한다. 예외 기간으로 종료 시각을 묶어 받았더라도
+     * 예외를 일찍 끝내면 그 시각까지 두 역할이 남기 때문이다. JIT·위임은 예외 기간 안에서만 받을 수 있어 그 기간에 끝난다
+     */
     fun endException(exceptionId: Long) {
         val exception = exceptionRepository.findByIdOrNull(exceptionId) ?: throw NotFoundException("직무 분리 예외", exceptionId)
         val now = clock.instant()
@@ -228,6 +252,17 @@ class RoleConflictService(
         eventPublisher.publishEvent(
             AdminChangeEvent("ROLE_CONFLICT", exception.conflictId, "END_EXCEPTION", mapOf("exceptionId" to exceptionId, "subjectId" to exception.subjectId), null),
         )
+        revokeGrantedUnder(exception, now)
+    }
+
+    private fun revokeGrantedUnder(exception: RoleConflictException, now: Instant) {
+        val conflict = conflictRepository.findByIdOrNull(exception.conflictId) ?: return
+        val pair = setOf(conflict.roleIdA, conflict.roleIdB)
+        val held = assignmentRepository.findCurrentOrUpcoming(exception.subjectId, now).filter { it.roleId in pair }
+        if (held.map { it.roleId }.toSet() != pair) return
+        held.filter { it.sourceType == AssignmentSourceType.DIRECT && !it.validFrom.isBefore(exception.validFrom) }
+            .maxByOrNull { it.requireId() }
+            ?.let { assignmentService.revoke(it.requireId(), null, "직무 분리 예외 종료") }
     }
 
     /** 이미 두 역할을 함께 가진 subject 는 그대로 둔다 (정의 이후의 부여부터 막는다) */

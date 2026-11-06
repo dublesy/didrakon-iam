@@ -83,12 +83,13 @@ class LoginSessionService(
     /**
      * refresh token 으로 새 토큰을 줄 수 있는가: 이 인가가 나온 로그인 세션이 아직 유효해야 한다 (절대 만료·로그아웃·회수).
      * 이것이 없으면 refresh 할 때마다 만료가 다시 늘어나 로그인 세션 상한(8시간)을 넘겨 계속 토큰을 받는다.
-     * 로그인 세션과 연결되지 않은 인가는 막지 않는다
+     * [sessionBound] 인가(브라우저 로그인에서 나온 authorization code)는 연결이 없으면 거부한다. 로그아웃과 refresh 가 겹치면
+     * 지운 인가가 연결 없이 다시 저장될 수 있어, 연결이 없다고 통과시키면 그 뒤로 끝없이 refresh 된다
      */
     @Transactional(readOnly = true)
-    fun allowsRefresh(authorizationId: String): Boolean {
+    fun allowsRefresh(authorizationId: String, sessionBound: Boolean): Boolean {
         val sessionIds = tokenRevoker.linkedSessionIds(authorizationId)
-        if (sessionIds.isEmpty()) return true
+        if (sessionIds.isEmpty()) return !sessionBound
         val now = clock.instant()
         return sessionRepository.findAllById(sessionIds).any { it.isValidAt(now) }
     }

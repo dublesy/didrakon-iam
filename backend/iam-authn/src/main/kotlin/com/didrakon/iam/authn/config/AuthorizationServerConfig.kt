@@ -216,7 +216,7 @@ class AuthorizationServerConfig(
         // refresh 는 그 토큰이 나온 로그인 세션이 살아 있을 때만 (로그인 세션 상한 8시간을 refresh 로 넘기지 못하게)
         val authorization = context.authorization
         if (context.authorizationGrantType == AuthorizationGrantType.REFRESH_TOKEN && authorization != null &&
-            !loginSessionService.allowsRefresh(authorization.id)
+            !loginSessionService.allowsRefresh(authorization.id, authorization.authorizationGrantType == AuthorizationGrantType.AUTHORIZATION_CODE)
         ) {
             throw OAuth2AuthenticationException(OAuth2Error(OAuth2ErrorCodes.INVALID_GRANT, "로그인 세션이 끝났습니다. 다시 로그인하세요", null))
         }

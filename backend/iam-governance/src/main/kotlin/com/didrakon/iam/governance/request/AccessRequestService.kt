@@ -65,7 +65,7 @@ class AccessRequestService(
             throw BusinessRuleException("같은 역할로 처리 중인 요청이 있습니다")
         }
         // 승인 뒤에 막히지 않도록 직무 분리 위반은 요청 시점에 먼저 알려 준다
-        if (sodGuard.violation(subjectId, roleId) != null) throw BusinessRuleException("직무 분리 위반으로 요청할 수 없는 역할입니다")
+        if (sodGuard.violation(subjectId, roleId, requestedStart, requestedEnd) != null) throw BusinessRuleException("직무 분리 위반으로 요청할 수 없는 역할입니다")
         return create(AccessRequestType.JIT, subjectId, activeRole(roleId), scopeId, reason, requestedStart, requestedEnd)
     }
 

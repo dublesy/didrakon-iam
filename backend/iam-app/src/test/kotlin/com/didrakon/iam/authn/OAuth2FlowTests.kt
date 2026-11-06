@@ -173,6 +173,17 @@ class OAuth2FlowTests @Autowired constructor(
     }
 
     @Test
+    fun `로그인 세션과의 연결이 없어진 브라우저 로그인 인가는 refresh 할 수 없다`() {
+        val client = webClient()
+        val (userId, session) = loggedInUser()
+        val refresh = exchangeCode(client, authorize(client, session))["refresh_token"].stringValue()
+        // 로그아웃과 refresh 가 겹쳐 지운 인가가 연결 없이 다시 저장된 상태를 만든다
+        jdbc.update("DELETE FROM login_session_authorization WHERE subject_id = ?", userId)
+
+        tokenRequest(client, "grant_type" to "refresh_token", "refresh_token" to refresh).andExpect(status().isBadRequest)
+    }
+
+    @Test
     fun `Supabase 호환을 켠 클라이언트의 토큰에만 role = authenticated 가 들어간다`() {
         val (_, session) = loggedInUser()
         val supabase = webClient(supabaseRoleClaim = true)

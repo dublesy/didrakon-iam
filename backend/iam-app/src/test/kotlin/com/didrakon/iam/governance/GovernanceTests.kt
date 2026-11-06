@@ -76,7 +76,44 @@ class GovernanceTests @Autowired constructor(
         assertThrows<BusinessRuleException> { assignmentService.assignDirect(userId, approval) }
 
         conflictService.grantException(conflict.requireId(), userId, fixture.user(), "결산 기간 한시 허용", now.plusSeconds(3600))
-        assignmentService.assignDirect(userId, approval)
+        // 예외는 그 기간 안에서만 함께 가질 수 있게 한다: 기한 없이·예외보다 길게 주면 막고, 예외 안으로 끝나면 허용
+        assertThrows<BusinessRuleException> { assignmentService.assignDirect(userId, approval) }
+        assertThrows<BusinessRuleException> { assignmentService.assignDirect(userId, approval, validUntil = now.plusSeconds(7200)) }
+        assignmentService.assignDirect(userId, approval, validUntil = now.plusSeconds(1800))
+    }
+
+    @Test
+    fun `예외를 일찍 끝내면 예외 덕에 받은 충돌 역할도 회수한다`() {
+        val (payment, approval) = fixture.role().requireId() to fixture.role().requireId()
+        val conflict = conflictService.define(payment, approval, RiskLevel.HIGH)
+        val userId = fixture.user()
+        val held = assignmentService.assignDirect(userId, payment)
+        val exception = conflictService.grantException(conflict.requireId(), userId, fixture.user(), "한시 허용", now.plusSeconds(3600))
+        val granted = assignmentService.assignDirect(userId, approval, validUntil = now.plusSeconds(1800))
+
+        conflictService.endException(exception.requireId())
+
+        assertEquals(AssignmentStatus.REVOKED, assignmentRepository.findById(granted.requireId()).orElseThrow().status)
+        assertEquals(AssignmentStatus.ACTIVE, assignmentRepository.findById(held.requireId()).orElseThrow().status, "원래 가진 역할은 그대로")
+    }
+
+    @Test
+    fun `시작 전인 위임도 직무 분리 검사에 넣는다 - 충돌 역할을 미래 시작으로 따로 받아 함께 가질 수 없다`() {
+        val (payment, approval) = fixture.role().requireId() to fixture.role().requireId()
+        conflictService.define(payment, approval, RiskLevel.HIGH)
+        val (holderA, holderB, target) = Triple(fixture.user(), fixture.user(), fixture.user())
+        assignmentService.assignDirect(holderA, payment)
+        assignmentService.assignDirect(holderB, approval)
+        val global = fixture.globalScopeId()
+
+        delegationService.delegate(holderA, target, payment, global, now.plusSeconds(3600), now.plusSeconds(7200), "휴가")
+        assertThrows<BusinessRuleException> {
+            delegationService.delegate(holderB, target, approval, global, now.plusSeconds(3600), now.plusSeconds(7200), "휴가")
+        }
+        // 지금 바로 주는 직접 할당도 곧 시작할 위임과 기간이 겹치면 막는다
+        assertThrows<BusinessRuleException> { assignmentService.assignDirect(target, approval) }
+        // 기간이 겹치지 않으면 허용한다
+        assignmentService.assignDirect(target, approval, validUntil = now.plusSeconds(1800))
     }
 
     @Test

@@ -85,6 +85,21 @@ class AccountAdminApiTests @Autowired constructor(
     }
 
     @Test
+    fun `사용자를 만들며 정한 첫 비밀번호도 다음 로그인에서 바꿔야 한다`() {
+        val w = World()
+        val loginId = "reg${System.nanoTime()}"
+        val created = json(
+            post("/api/v1/users"), w.orgAdmin,
+            """{"empNo":"E${System.nanoTime()}","name":"새 직원","primaryOrgId":${w.scopeOrg},"loginId":" $loginId ","password":"$password"}""",
+        ).andExpect(status().isCreated)
+        val subjectId = JsonPath.read<Number>(body(created), "$.data.subjectId").toLong()
+
+        val credential = accountService.findLocalCredential(subjectId) ?: throw AssertionError("로그인 계정 없음")
+        assertTrue(credential.mustChangePassword, "관리자가 정한 비밀번호를 계속 쓰지 못하게 한다")
+        assertEquals(subjectId, accountService.findIdentity(loginId)?.subjectId, "로그인 ID 앞뒤 공백은 지운다")
+    }
+
+    @Test
     fun `2단계 인증 수단을 보고 초기화한다 - 비밀값은 주지 않고, 조직 단위 관리자는 범위 밖과 다른 관리자를 초기화할 수 없다`() {
         val w = World()
         val methodIn = totp(w.userIn)

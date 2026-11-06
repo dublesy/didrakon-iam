@@ -18,7 +18,7 @@
 **사용자** `/users`
 
 - `GET /users?q=&kind=` — 이름·사번·이메일 검색, `kind` 는 `EMPLOYEE`·`EXTERNAL`
-- `POST /users` — 만들기. `userKind`·`primaryOrgId` 로 주 소속까지
+- `POST /users` — 만들기. `userKind`·`primaryOrgId` 로 주 소속까지. `loginId`·`password` 를 함께 주면 로그인 계정도 만든다 (다음 로그인에 비밀번호 변경 강제)
 - `GET /users/{id}`, `GET /subjects/names`, `GET /subjects/{id}/memberships`
 - `POST /users/{id}/retire` — 퇴사 (미래 날짜면 예약), `DELETE` 로 예약 취소
 - `POST /users/lookup` — 연동 시스템 계정 연결용: 사번·이메일 목록 → subject ID (전체 범위 조회 권한만)
