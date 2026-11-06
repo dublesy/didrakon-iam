@@ -9,7 +9,9 @@
   - 사번이 없을 때만 이메일로 찾고, 정확히 한 명일 때만 연결한다
   - IAM 에서 ACTIVE 가 아닌 사람은 연결하지 않는다 (그 로컬 계정은 끌 대상)
 
-인증: 환경변수 IAM_API_KEY (X-API-Key) 또는 IAM_TOKEN (Bearer). 사용자 조회 전체 범위 권한이 필요하다
+인증: 환경변수 IAM_API_KEY (X-API-Key, 서비스 계정 키 권장) 또는 IAM_TOKEN (Bearer, 관리 콘솔 iam-admin 에 발급된 관리자 토큰).
+      사용자 조회 전체 범위 권한이 필요하다. /api 는 연동 시스템이 자기 로그인으로 받은 사용자 토큰·ID 토큰을 받지 않고,
+      client credentials 토큰도 이 API 에는 쓸 수 없다 (scope 로 여는 API 가 아니다)
 
 예: python3 link_accounts.py users.csv --issuer https://iam.example.com --dialect mysql --table users --id-column id
 """
@@ -53,7 +55,9 @@ def lookup(issuer, emp_nos, emails):
         with urllib.request.urlopen(req, timeout=30) as res:
             return json.load(res)["data"]
     except urllib.error.HTTPError as e:
-        sys.exit(f"조회 실패 HTTP {e.code}: {e.read().decode(errors='replace')[:300]}")
+        hint = " (IAM_TOKEN 은 관리 콘솔에 발급된 토큰만 받는다. IAM_API_KEY 를 권한다)" if e.code == 401 else ""
+        hint = " (사용자 조회 전체 범위 권한이 필요하다)" if e.code == 403 else hint
+        sys.exit(f"조회 실패 HTTP {e.code}{hint}: {e.read().decode(errors='replace')[:300]}")
 
 
 def resolve_all(issuer, rows):

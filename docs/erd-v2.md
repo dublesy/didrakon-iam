@@ -104,6 +104,7 @@ erDiagram
         varchar password_hash
         datetime password_changed_at
         datetime password_expire_at
+        boolean must_change_password "관리자 초기화 뒤 본인 변경 필요 (V10)"
         int failed_attempt_count
         datetime locked_until
     }
@@ -257,6 +258,7 @@ erDiagram
         varchar secret_reference
         boolean is_primary
         boolean is_verified
+        bigint last_used_step "마지막 TOTP 시간 구간, 재사용 방지 (V8)"
         datetime registered_at
     }
 
@@ -477,6 +479,7 @@ erDiagram
         datetime requested_start
         datetime requested_end
         varchar status "PENDING, APPROVED, REJECTED, EXPIRED, CANCELLED"
+        datetime closed_at "승인·반려·취소·만료 시각 (V23)"
         datetime created_at
     }
 
@@ -594,6 +597,7 @@ erDiagram
         boolean require_approval
         boolean require_mfa
         int max_duration_minutes
+        bigint eligible_group_id FK "시작할 수 있는 그룹, NULL = 모두 (V23)"
         boolean is_active
     }
 
@@ -653,6 +657,8 @@ erDiagram
         datetime expire_at
         datetime last_used_at
         boolean revoked
+        datetime revoked_at "V23"
+        bigint revoked_by FK "V23"
     }
 
     SERVICE_CREDENTIAL {
@@ -828,6 +834,7 @@ erDiagram
     %% BREAK GLASS
     ROLE ||--o{ BREAK_GLASS_POLICY : "emergency_role"
     SCOPE ||--o{ BREAK_GLASS_POLICY : "emergency_scope"
+    USER_GROUP ||--o{ BREAK_GLASS_POLICY : "eligible_group"
     BREAK_GLASS_POLICY ||--o{ BREAK_GLASS_SESSION : "creates"
     SUBJECT ||--o{ BREAK_GLASS_SESSION : "uses"
     ACCESS_REQUEST ||--o| BREAK_GLASS_SESSION : "approved_by"
@@ -868,6 +875,22 @@ erDiagram
 |---|---|
 | `LOCAL_CREDENTIAL` | 자체 IdP(SAS)로 비밀번호 로그인을 하려면 비밀번호 hash 저장소가 필요한데 원본에 없음 |
 | `OAUTH2_REGISTERED_CLIENT`, `OAUTH2_AUTHORIZATION`, `OAUTH2_AUTHORIZATION_CONSENT` | SAS 표준 스키마. 라이브러리 소유라 PK 규칙(BIGINT) 예외 |
+
+### ERD 외 테이블
+
+기능을 붙이면서 추가했지만 도메인 모델이 아니라 ERD 에 넣지 않은 테이블. 규칙은 4장의 해당 절에 둔다. `SchemaConstraintTests` 는 ERD 테이블에 이 13개를 더한 수를 확인한다.
+
+| 테이블 | 버전 | 용도 |
+|---|---|---|
+| `secret_value` | V7 | `SecretStore` 가 AES-GCM 으로 암호화해 보관하는 비밀값 (MFA·webhook 비밀값) |
+| `shedlock` | V8 | 스케줄 작업을 한 인스턴스만 실행 (ShedLock) |
+| `login_session_authorization` | V10 | 로그인 세션 ↔ SAS 인가 연결 (토큰 회수·refresh 제한) |
+| `rate_limit_counter` | V12 | 여러 서버가 함께 세는 호출 수 제한 |
+| `hr_sync_run` | V14 | HR 연동 실행 기록 |
+| `webhook_subscription`, `webhook_delivery` | V15 | webhook 구독·전달 (아웃박스) |
+| `access_review_campaign`, `access_review_item` | V16, V19 | 접근 재검토 캠페인·항목 스냅샷 |
+| `user_entities`, `user_credentials` | V18 | 패스키 (Spring Security WebAuthn 표준 스키마) |
+| `SPRING_SESSION`, `SPRING_SESSION_ATTRIBUTES` | V22 | 브라우저(HTTP) 세션 (Spring Session JDBC 표준 스키마, 프레임워크 소유라 이름·컬럼 규칙 예외). `LOGIN_SESSION` 과는 별개다 |
 
 ### 이름 변경
 
@@ -911,10 +934,13 @@ erDiagram
 | `SERVICE_ACCOUNT` | `description` 제거 | `SUBJECT.description`과 중복. JOINED 상속에서 상위 컬럼을 쓴다 |
 | `POLICY_EXCEPTION` | 대상(subject, 리소스) 중 하나 이상 필수 (CHECK) | 대상 없는 예외는 정책 전체를 무력화함 |
 | `AUTHENTICATION_EVENT`, `AUTHORIZATION_LOG`, `AUDIT_EVENT` | PK에 시간 컬럼 포함 (`(id, created_at)` 등) | MySQL 파티션 테이블은 파티션 키가 모든 UNIQUE 키에 포함되어야 함. 나중에 월 단위 파티셔닝을 PK 변경 없이 적용 |
+| `API_KEY` | `revoked_at`, `revoked_by` 추가 (V23) | 언제 누가 폐기했는지 남긴다. 사용 중지·퇴사 일괄 폐기는 `revoked_by` NULL, V23 이전에 폐기된 키는 둘 다 NULL |
+| `ACCESS_REQUEST` | `closed_at` 추가 (V23) | 처리가 끝난(승인·반려·취소·만료) 시각. V23 이전에 끝난 요청은 NULL |
+| `BREAK_GLASS_POLICY` | `eligible_group_id` 추가 (V23) | 비상 접근을 시작·요청할 수 있는 그룹을 정책마다 제한. NULL 이면 사용 중인 사람 누구나 |
 
 ### 스키마 작성 규칙
 
-ERD에 길이·NULL 여부가 없는 컬럼은 아래 규칙으로 정했다. 마이그레이션: `backend/iam-app/src/main/resources/db/migration` (도메인별 `V1__identity` ~ `V6__audit`)
+ERD에 길이·NULL 여부가 없는 컬럼은 아래 규칙으로 정했다. 마이그레이션: `backend/iam-app/src/main/resources/db/migration` (도메인별 `V1__identity` ~ `V6__audit`, 이후 변경은 `V7` ~ `V23`)
 
 | 대상 | 규칙 |
 |---|---|
@@ -1018,12 +1044,12 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 | 역할 | `IAM_ORG_ADMIN`(SYSTEM, 민감): 사용자 READ·CREATE·UPDATE, 소속 READ·CREATE·UPDATE·DELETE, 조직 READ·UPDATE, 세션 READ·DELETE. 역할·할당·정책·리소스·범위·클라이언트·위험·webhook·재검토·HR 연동 권한은 없다 (스스로 권한을 넓히지 못하게). 관리 API MFA 정책 대상이다 |
 | 대상 판정 | 사용자·조직·소속·세션 API 는 경로의 대상 조직을 `orgId` 로 PDP 에 넘긴다 (위 "권한 판정(PDP) 규칙"). 범위 밖이면 403. 소속이 하나도 없는 사람은 전체 범위 권한만 다룬다 |
 | 본문의 대상 | 사용자 생성은 `primaryOrgId`(같은 트랜잭션에서 PRIMARY 소속 생성)가 범위 안이어야 하고, 비우면 전체 범위 권한만. 주 소속 이동은 지금 조직과 옮길 조직이 모두, 소속 추가는 대상 사람과 조직이 모두, 조직 이동은 옮길 조직과 새 상위 조직이 모두 범위 안이어야 한다 |
-| 다른 관리자 보호 | 조직 범위로만 권한이 있는 관리자는 IAM 관리 API 권한을 가진 사람(전체 관리자·다른 조직 단위 관리자 등)을 바꿀 수 없다(조회는 된다). 같은 조직에 있는 전체 관리자의 비밀번호 초기화·사용 중지 같은 권한 탈취·무력화를 막는다. 본인은 예외 |
+| 다른 관리자 보호 | 조직 범위로만 권한이 있는 관리자는 IAM 관리 API 권한을 가진 사람(전체 관리자·다른 조직 단위 관리자 등)을 바꿀 수 없다(조회는 된다). 곧 받을 사람(승인된 JIT·시작 전 위임처럼 `valid_from` 이 미래인 ACTIVE 할당)도 같다 — 시작 전에 비밀번호·MFA 를 초기화해 두고 시작 시각에 가로채지 못하게. 같은 조직에 있는 전체 관리자의 비밀번호 초기화·사용 중지 같은 권한 탈취·무력화를 막는다. 본인은 예외 |
 | 목록 | 사용자 목록은 활성 PRIMARY 소속 조직이 범위 안인 사람만, 조직 목록은 범위 안 조직만(상위 조직은 빠짐), 이름 조회(`/subjects/names`)는 범위 안 조직에 활성 소속이 있는 사람만. 조직 구성원 목록은 범위 안 조직만 열린다(그 조직의 겸직자는 보인다) |
 | 범위 계산 | 유효한 할당 × 유효한 역할 권한(허용만)에서 할당 scope ∩ 권한 scope 를 조직 집합으로 펼친다. GLOBAL·RESOURCE → 전체, ORGANIZATION → 그 조직(하위 포함 시 하위 전체), PROJECT·DATA → 없음. DENY 권한·ABAC 정책은 목록 거르기에 반영하지 않고, 호출 자체는 PDP 가 판정한다 |
 | 전체 전용 API | 역할·리소스·권한·범위·할당·조직/그룹 역할 규칙·정책·직무 분리·승인·재검토·위험·webhook·HR 연동·클라이언트·API 키·감사·그룹·조직 생성은 `orgId` 없이 판정하므로 조직 범위 할당으로는 403 이다. **조직 단위 관리자는 역할을 줄 수 없다** |
-| 관리 API MFA 정책 | `IAM_ADMIN_API_MFA` 는 콘솔·API 로 끄거나 대상·규칙을 바꿀 수 없다(409). 켜고 끄기는 `iam.bootstrap.require-mfa-for-admin` 설정으로 한다 |
-| 규칙으로 주는 역할 | 관리 콘솔 권한(`iam-admin` 리소스)이 있는 역할은 조직·그룹 역할 규칙에 넣을 수 없고, 규칙에 쓰는 역할에는 콘솔 권한을 더할 수 없다(409). 직접 할당만 한다. 소속을 바꿀 수 있는 조직 단위 관리자가 자기나 다른 사람을 그 조직에 넣어 관리 역할을 얻지 못하게 한다 |
+| 관리 API MFA 정책 | `IAM_ADMIN_API_MFA` 는 콘솔·API 로 끄거나 대상을 바꾸거나 새 버전(규칙)을 만들거나 예외를 둘 수 없다(409). 예외를 두면 그 대상은 비밀번호만으로 관리 API 를 쓰기 때문이다. 켜고 끄기는 `iam.bootstrap.require-mfa-for-admin` 설정으로 한다 |
+| 규칙으로 주는 역할 | 관리 콘솔 권한(`iam-admin` 리소스)이 있는 역할은 조직·그룹 역할 규칙에 넣을 수 없고, 규칙에 쓰는 역할에는 콘솔 권한을 더할 수 없다(409). 부여하는 순간에도 다시 막는다(`ConsoleRoleGrantGuard`, `ORGANIZATION`·`GROUP` 출처) — 그 전에 만든 규칙이나 나중에 콘솔 권한이 생긴 역할의 규칙이 소속 변경 때 관리 역할을 주지 못하게. 직접 할당만 한다. 소속을 바꿀 수 있는 조직 단위 관리자가 자기나 다른 사람을 그 조직에 넣어 관리 역할을 얻지 못하게 한다 |
 | 콘솔 | `GET /api/v1/me/admin-scope` → `{global, orgIds, resources: [{resource, actions}]}`. 메뉴와 화면 영역(역할·위험·감사 등)은 이 값으로 보이고 숨긴다. 실제 허용은 API 마다 PDP 가 판정한다 |
 
 ### 감사 기록 규칙
@@ -1038,7 +1064,7 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 
 | 이벤트 | 기록 |
 |---|---|
-| 역할 할당 생성·회수·재검토 표시 | `ROLE_CHANGE_HISTORY` + `AUDIT_EVENT(ROLE_CHANGE)`, action = `ASSIGN`/`REVOKE`/`REVIEW`, after = 역할·scope·출처 |
+| 역할 할당 생성·회수·재검토 표시·종료 시각 변경 | `ROLE_CHANGE_HISTORY` + `AUDIT_EVENT(ROLE_CHANGE)`, action = `ASSIGN`/`REVOKE`/`REVIEW`/`MODIFY`(사유에 이전·새 종료 시각), after = 역할·scope·출처 |
 | 조직 소속 생성·종료 | `AUDIT_EVENT(MEMBERSHIP_CHANGE)`, action = `JOIN`/`LEAVE`, 조직·소속 유형 |
 | PRIMARY 소속 이동 | `AUDIT_EVENT(MEMBERSHIP_CHANGE)`, action = `TRANSFER`, before/after = 이전·새 조직 |
 | 그룹 구성원 추가·제거 | `AUDIT_EVENT(MEMBERSHIP_CHANGE)`, action = `ADD`/`REMOVE` |
@@ -1046,6 +1072,7 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 | 로그인·로그아웃 (authn) | `AUDIT_EVENT(LOGIN/LOGOUT)` (`AUTHENTICATION_EVENT` 와 별도로) |
 | 접근 요청·비상 접근 (governance) | `AUDIT_EVENT(JIT)`, action = 요청 상태 |
 | 기준 데이터 수정·켜기·끄기·퇴사 | `AUDIT_EVENT`, before/after = 바뀐 값 (유형은 "관리 변경 규칙" 참고) |
+| 정책 예외 추가 | `AdminChangeEvent` → `AUDIT_EVENT(POLICY_CHANGE)`, resource_type = `POLICY`, action = `ADD_EXCEPTION`, after = 예외 ID·대상·사유·종료 시각. 예외는 그 대상에게 정책을 끄는 것과 같기 때문이다 |
 | 위험 정책 추가·수정·켜기·끄기 | `AUDIT_EVENT(POLICY_CHANGE)`, resource_type = `RISK_POLICY` |
 | 접근 재검토 시작·마감·항목 결정 (governance) | `AUDIT_EVENT(ROLE_CHANGE)`, resource_type = `ACCESS_REVIEW_CAMPAIGN`(action `REVIEW_CAMPAIGN_CREATE`/`ESCALATE`/`CLOSE`) · `ACCESS_REVIEW_ITEM`(action `REVIEW_KEEP`/`REVIEW_REVOKE`, after = 캠페인·할당·결정자·자동 여부, reason = 의견). 회수·유지 확인은 역할 할당 변경으로도 남는다 |
 
@@ -1062,18 +1089,18 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 | 로그인 | LOCAL IdP(V7 초기 데이터) 계정의 로그인 ID + 비밀번호. 인증 후 principal 이름과 토큰 `sub` 는 **subject ID** |
 | 비밀번호 변경 | 본인은 현재 비밀번호를 맞혀야 바꾼다(틀리면 실패 횟수에 셈). 관리자가 초기화하면 `LOCAL_CREDENTIAL.must_change_password`(V10)가 켜져 다음 로그인에서 본인이 바꿔야 한다. 만료됐거나 초기화된 계정은 비밀번호를 맞힌 뒤에만 변경 화면(`/login/password`, 10분 유효)으로 가고(이때 세션 ID 를 바꾼다), 바꾼 뒤 새 비밀번호로 다시 로그인한다. 지금 비밀번호와 같은 값은 거부. 어떤 경로로든(본인·셀프 재설정·만료·관리자 초기화) 비밀번호가 바뀌면 그 사람의 로그인 세션과 발급한 토큰을 모두 끝낸다(`PasswordChangedEvent`). API 키는 따로 관리하므로 두고, 필요하면 폐기한다 |
 | 잠금 | 비밀번호 오류와 MFA 코드 오류를 합쳐 5회 연속이면 30분 잠금(`LOCAL_CREDENTIAL.locked_until`). MFA 단계에서 잠기면 진행 중인 로그인도 끝낸다. 실패 기록은 로그인 요청이 실패해도 남도록 별도 트랜잭션으로 커밋. 성공하면 횟수 초기화. 관리자는 `POST /api/v1/users/{id}/unlock` 으로 비밀번호를 바꾸지 않고 풀 수 있다(감사 `USER`·`UNLOCK`) |
-| 셀프 재설정 | 메일·문자 수단이 없으므로 확인을 마친 TOTP 로 본인을 확인한다. `/login/forgot` 에 로그인 ID + 인증 앱 코드 → 맞으면 비밀번호 변경 화면(`/login/password`, 10분 유효)으로 가고, 새 비밀번호를 정하면 잠금·실패 횟수도 풀린다(잠긴 계정의 본인 해제). 사용자 상태가 ACTIVE 가 아니면 거부. 없는 계정·TOTP 없음·틀린 코드·제한 초과는 모두 같은 문구. 로그인 잠금과 별도로 계정마다 1시간에 실패 5회면 코드가 맞아도 거부한다: `AUTHENTICATION_EVENT`(`PASSWORD_CHANGE`, 사유 `PASSWORD_RESET_OK`·`PASSWORD_RESET_FAILED`·`PASSWORD_RESET_LIMITED`) 중 `FAILED` 행을 센다. 감사는 `LOGIN`·`PASSWORD_RESET_SUCCESS`/`FAILURE` |
+| 셀프 재설정 | 메일·문자 수단이 없으므로 확인을 마친 TOTP 로 본인을 확인한다. `/login/forgot` 에 로그인 ID + 인증 앱 코드 → 맞으면 비밀번호 변경 화면(`/login/password`, 10분 유효)으로 가고, 새 비밀번호를 정하면 잠금·실패 횟수도 풀린다(잠긴 계정의 본인 해제). 사용자 상태가 ACTIVE 가 아니면 거부. 없는 계정·TOTP 없음·틀린 코드·제한 초과는 모두 같은 문구. 로그인 잠금과 별도로 계정마다 1시간에 실패 5회면 코드가 맞아도 거부한다: `AUTHENTICATION_EVENT`(`PASSWORD_CHANGE`, 사유 `PASSWORD_RESET_OK`·`PASSWORD_RESET_FAILED`·`PASSWORD_RESET_LIMITED`) 중 `FAILED` 행을 센다. 같은 계정 시도는 그 사람의 `MFA_METHOD` 행을 잠가(`SELECT … FOR UPDATE`) 하나씩 처리하고, 앞 시도의 기록이 보이도록 `READ COMMITTED` 로 센다 — 동시에 보낸 요청이 모두 같은 실패 횟수를 읽고 통과하지 못하게. 감사는 `LOGIN`·`PASSWORD_RESET_SUCCESS`/`FAILURE` |
 | 비밀번호 | 최소 10자, 로그인 ID 포함 금지, 90일 만료(설정값). 저장은 `{bcrypt}` 등 DelegatingPasswordEncoder 형식 |
-| 로그인 세션 | 로그인마다 `LOGIN_SESSION` 1건. 브라우저에는 무작위 키, DB 에는 hash. 관리자가 종료하면 그 브라우저의 다음 요청에서 다시 로그인 |
-| MFA | TOTP(RFC 6238). 확인을 마친 TOTP 가 있으면 비밀번호 다음에 반드시 거친다. `SSO_CLIENT.require_mfa` 클라이언트는 TOTP 나 패스키 없이 로그인할 수 없다(authorize 경로는 SAS 와 같이 디코딩한 경로로 맞춘다. `/oauth2/%61uthorize` 같은 표기로 건너뛸 수 없다). 수단을 더하거나 지우는 본인 API 는 API 키로는 못 쓰고, 이미 수단이 있으면 MFA·패스키로 로그인한 토큰이어야 한다. 성공하면 세션 수준 `MFA`, 토큰 `amr = [pwd, otp]` |
-| 패스키 로그인 | WebAuthn(Spring Security). 사용자 확인(생체·PIN) 필수라 그 자체로 MFA: 세션 수준 `MFA`, 토큰 `amr = [hwk, user]`, TOTP 를 다시 묻지 않는다. 관리 API MFA 정책(`IAM_ADMIN_API_MFA`)은 `amr NOT_IN ["otp","hwk"]` 일 때 CHALLENGE — 그 전 규칙(`["otp"]`)이 그대로면 기동할 때 새 버전으로 바꾼다. 위험 평가 DENY 는 막고 CHALLENGE 는 충족한 것으로 기록(`LOGIN/CHALLENGE`, 사유 끝 "패스키로 충족"). 성공 인증 이벤트 사유 `PASSKEY`. 실패는 `FAILED_LOGIN`(사유 `PASSKEY: …`)으로만 남기고 비밀번호 실패 횟수는 건드리지 않는다. 사용자 상태가 ACTIVE 가 아니거나 비밀번호·코드 실패로 일시 잠겨(`locked_until`) 있으면 거부(`/login?unavailable`) — 잠금은 그 계정에 공격이 있다는 신호라 어떤 방법으로도 들어오지 못하게 한다. 잠금은 만료·셀프 재설정·관리자 해제로 풀린다 |
-| 패스키 등록 | IAM 화면 `/account/passkeys`(Spring `/webauthn/register`). 2단계 인증(TOTP 또는 패스키)을 거친 로그인에서만 등록·삭제한다. WebAuthn 사용자 이름(`user_entities.name`)은 subject ID, 인증기에 보이는 이름은 로그인 ID. 저장은 V18 `user_entities`·`user_credentials`(Spring 표준 스키마, ERD 외 테이블). 등록·삭제는 감사 `LOGIN`·`PASSKEY_ADD`/`PASSKEY_REMOVE` |
+| 로그인 세션 | 로그인마다 `LOGIN_SESSION` 1건. 브라우저에는 무작위 키, DB 에는 hash. 관리자가 종료하면 그 브라우저의 다음 요청에서 다시 로그인. 절대 만료 8시간(`iam.authn.session-timeout`, `LoginSessionValidationFilter`). 브라우저(HTTP) 세션은 Spring Session JDBC 로 DB(`SPRING_SESSION`, V22)에 두어 재기동·배포에도 유지되고 여러 인스턴스가 함께 쓰며, 30분 쓰지 않으면 끝난다(`spring.session.timeout`). refresh token 은 그 인가가 나온 로그인 세션이 아직 유효할 때만 새 토큰을 준다(`LoginSessionService.allowsRefresh`, 아니면 `invalid_grant`) — refresh 로 8시간 상한을 넘기지 못하게. 로그인 세션과 연결되지 않은 인가는 막지 않는다 |
+| MFA | TOTP(RFC 6238). 확인을 마친 TOTP 가 있으면 비밀번호 다음에 반드시 거친다. `SSO_CLIENT.require_mfa` 클라이언트는 TOTP 나 패스키 없이 로그인할 수 없다(authorize 경로는 SAS 와 같이 디코딩한 경로로 맞춘다. `/oauth2/%61uthorize` 같은 표기로 건너뛸 수 없다). 수단을 더하거나 지우는 본인 API(`/api/v1/me` 의 TOTP 등록·확인·삭제, 패스키 삭제)는 로그인한 본인 JWT 로만 쓰고(API 키 불가, `INTERACTIVE_LOGIN_REQUIRED`), 이미 TOTP·패스키가 있으면 `amr` 에 `otp`·`hwk` 가 있는 토큰이어야 한다(`MFA_REQUIRED`). 첫 등록은 비밀번호 로그인으로 한다. 성공하면 세션 수준 `MFA`, 토큰 `amr = [pwd, otp]` |
+| 패스키 로그인 | WebAuthn(Spring Security). 사용자 확인(생체·PIN) 필수라 그 자체로 MFA: 세션 수준 `MFA`, 토큰 `amr = [hwk, user]`, TOTP 를 다시 묻지 않는다. 관리 API MFA 정책(`IAM_ADMIN_API_MFA`)은 `amr NOT_IN ["otp","hwk"]` 일 때 CHALLENGE — 그 전 규칙(`["otp"]`)이 그대로면 기동할 때 새 버전으로 바꾼다. 위험 평가 DENY 는 막고 CHALLENGE 는 충족한 것으로 기록(`LOGIN/CHALLENGE`, 사유 끝 "패스키로 충족"). 성공 인증 이벤트 사유 `PASSKEY`. 실패는 `FAILED_LOGIN`(사유 `PASSKEY: …`)으로만 남기고 비밀번호 실패 횟수는 건드리지 않는다. 사용자 상태가 ACTIVE 가 아니거나 비밀번호·코드 실패로 일시 잠겨(`locked_until`) 있으면 거부(`/login?unavailable`) — 잠금은 그 계정에 공격이 있다는 신호라 어떤 방법으로도 들어오지 못하게 한다. 잠금은 만료·셀프 재설정·관리자 해제로 풀린다. 2단계 수단이 패스키뿐인 사람(확인된 TOTP 없음)은 비밀번호만으로 들어오지 못하고 패스키로 로그인해야 한다(`/login?passkey-required`, 인증 이벤트 `LOGIN/FAILURE` 사유 `PASSKEY_REQUIRED`) |
+| 패스키 등록 | IAM 화면 `/account/passkeys`(Spring `/webauthn/register`). 2단계 인증(TOTP 또는 패스키)을 거친 로그인에서만 등록·삭제한다. 이 검사는 Spring 의 등록 필터와 같이 디코딩한 경로(`/webauthn/register/**`)로 맞춘다(`/webauthn/%72egister` 같은 표기로 건너뛸 수 없다). WebAuthn 사용자 이름(`user_entities.name`)은 subject ID, 인증기에 보이는 이름은 로그인 ID. 저장은 V18 `user_entities`·`user_credentials`(Spring 표준 스키마, ERD 외 테이블). 등록·삭제는 감사 `LOGIN`·`PASSKEY_ADD`/`PASSKEY_REMOVE` |
 | TOTP 재사용 | 성공한 코드의 시간 구간을 `MFA_METHOD.last_used_step`(V8)에 남기고, 같거나 이전 구간의 코드는 거부한다. 검증은 행 잠금(`SELECT … FOR UPDATE`)으로 동시 요청을 막는다 |
 | 위험 평가 | 비밀번호 확인 직후 LOGIN 위험을 평가한다(아래 위험 규칙). 결과가 DENY 면 로그인을 되돌리고 `/login?risk` 로 보낸다. 실패 횟수는 초기화하지 않는다 |
 | 서명 키 | JWT 서명 RSA 키는 `IAM_JWT_PRIVATE_KEY`·`IAM_JWT_PUBLIC_KEY`. 없으면 기동마다 새 키라 재기동 시 기존 토큰이 무효가 된다. `prod` 는 키 없이 기동하지 않는다 (`iam.authn.require-persistent-jwt-key`) |
 | 비밀값 | `MFA_METHOD.secret_reference` 에는 참조만. 실제 값은 `SecretStore` 가 보관하며, 지금 구현은 앱 키(`IAM_SECRET_KEY`)로 AES-GCM 암호화해 `secret_value` 테이블(V7, ERD 외 테이블)에 둔다 |
 | 토큰 | SAS 토큰·code 는 SHA-256 hash 로만 저장(결정 사항 3). refresh token 은 매번 회전, 이전 값은 거부 |
-| 토큰 회수 | 인가 기록은 저장될 때 그 브라우저의 로그인 세션과 연결된다(`login_session_authorization`, V10). 로그아웃·관리자 세션 종료 → 그 세션에서 나온 인가 삭제(refresh 불가). 사용 안 함·잠김·퇴사 → 모든 세션 종료, 모든 인가 삭제, API 키 폐기. 접근 토큰(JWT, 10분)은 만료까지 남지만 PDP 가 비활성 주체를 거부한다 |
+| 토큰 회수 | 인가 기록은 저장될 때 그 브라우저의 로그인 세션과 연결된다(`login_session_authorization`, V10). 로그아웃·관리자 세션 종료 → 그 세션에서 나온 인가 삭제(refresh 불가). 사용 안 함·잠김·퇴사 → 모든 세션 종료, 모든 인가 삭제, API 키 폐기. 접근 토큰(JWT, 10분)은 만료까지 남지만 PDP 가 비활성 주체를 거부하고, 본인 API(`@SelfService`)도 상태가 ACTIVE 인 주체만 받는다(`SUBJECT_INACTIVE`) |
 | 토큰 claim | 사용자 토큰(접근·ID)에 `name`, `user_kind`(EMPLOYEE·EXTERNAL), `emp_no`(임직원만), `primary_org_id`, `company_org_id`(문자열), `roles`(유효한 역할 코드). client credentials 토큰에는 넣지 않는다. 토큰 수명 동안은 바뀐 값이 반영되지 않으므로 거친 판단(메뉴 노출)에만 쓰고 세밀한 판단은 `/api/v1/authz/check` |
 | 퇴사 | `POST /api/v1/users/{id}/retire`: 소속 종료·그룹 제외(→ 조직·그룹 할당 회수), 남은 할당 전부 회수, `status = RETIRED`, `employment_status = RETIRED`, 퇴사일 기록. 되돌릴 수 없다. 퇴사일이 오늘 이후면 `USER.retire_date` 에 예약만 하고(상태는 그대로), 만료 스케줄러가 그날 처리한다. 예약은 `DELETE` 로 취소 |
 | IAM 홈 | 로그인 서버의 `/`(내 계정). 내 앱은 `SSO_CLIENT.home_url`(V21)을 둔 켜진 WEB·MOBILE 클라이언트 바로가기다 (접근 권한은 각 시스템이 판단). 로그인된 기기는 본인의 유효한 `LOGIN_SESSION`, 최근 로그인 기록은 본인의 `AUTHENTICATION_EVENT` 10건. `다른 기기에서 모두 로그아웃`은 지금 브라우저의 로그인 세션만 남기고 나머지를 끝낸다 (토큰 회수·back-channel 로그아웃 포함, 감사 LOGOUT). 콘솔 링크는 `iam.authn.console-url`(`IAM_CONSOLE_URL`) |
@@ -1081,7 +1108,8 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 | 계정 연결 조회 | `POST /api/v1/users/lookup` 은 연동 시스템이 기존 계정을 잇는 일회성 작업용으로 사번·이메일 목록(합쳐 1000건)을 받아 맞는 사용자를 돌려준다. 사번은 하나, 이메일은 대소문자를 무시하고 여러 명(임직원·외부 사용자)일 수 있다. 개인정보가 URL 에 남지 않도록 POST 본문으로 받고, 사용자 조회 전체 범위 권한만 쓸 수 있다 |
 | back-channel 로그아웃 | `SSO_CLIENT.backchannel_logout_uri`(V11)를 등록한 클라이언트는, 그 클라이언트에 발급한 인가가 회수될 때(로그아웃·세션 종료·사용 중지·퇴사) 서명한 로그아웃 토큰을 받는다. `aud` = client_id, `sub` = subject ID, `events` 에 back-channel-logout, `typ: logout+jwt`(API 접근 토큰으로 쓸 수 없음). 로그인 세션 하나가 끝나면(로그아웃·관리자 세션 종료) 그 클라이언트에 준 ID 토큰의 `sid`(Spring Authorization Server 가 넣는 HTTP 세션 ID 해시, 저장된 ID 토큰 claim 에서 읽음)를 함께 넣어 받는 쪽이 그 세션만 끝내게 하고, 사용자 단위로 끝나면(사용 중지·잠금·퇴사) `sub` 만 넣어 그 사용자의 세션을 모두 끝내게 한다. discovery 에 `backchannel_logout_supported`·`backchannel_logout_session_supported` 를 알린다. 커밋 뒤 별도 스레드로 보내고 실패는 로그만 남긴다. HTTP/1.1 로 보낸다 (HTTP/2 기본값은 http:// 주소에 h2c 업그레이드 요청을 보내는데, Next.js 처럼 업그레이드를 직접 처리하는 서버는 연결을 끊는다) |
 | 호출 수 제한 | IP 별 1분 구간: 로그인 POST 20, 토큰 120, 권한 판정 6000, 그 밖의 API 600 (`iam.rate-limit.*`). 기본은 서버별. `iam.rate-limit.store: jdbc` 면 로그인·토큰 경로를 `rate_limit_counter`(V12)에서 여러 서버가 함께 센다 (지난 구간은 만료 스케줄러가 지움). 운영은 `forward-headers-strategy: native` 로 내부 프록시가 준 실제 IP 를 쓴다 |
-| API 키 | `iam_` 접두어 원문은 발급 때 한 번만 보여주고 hash 만 저장. 키로 들어온 요청은 키 소유 subject 로 판정 |
+| API 키 | `iam_` 접두어 원문은 발급 때 한 번만 보여주고 hash 만 저장. 키로 들어온 요청은 키 소유 subject 로 판정. 폐기하면 `revoked_at`·`revoked_by`(V23)를 남기고, 관리자 목록은 폐기·만료된 키도 보여준다. 역할 위임·2단계 수단 변경은 키로 할 수 없다 |
+| `/api` 인증 | `X-API-Key`, 또는 IAM 이 발급한 JWT 중 관리 콘솔 클라이언트(`iam-admin`)에 발급한 접근 토큰과 client credentials(시스템) 토큰만 받는다(`ApiTokenValidator`). ID 토큰(`azp` 있음)과 다른 연동 시스템에 발급한 사용자 토큰은 거부한다. 시스템 토큰은 `sub` = `aud` = client_id 라 행위자 subject 가 없다(감사 행위자 NULL, subject 가 필요한 API 는 `SUBJECT_REQUIRED`). 그래서 SSO 클라이언트 코드는 숫자만으로 만들 수 없다(같은 번호의 subject ID 와 헷갈림) |
 
 ### HR 연동 규칙
 
@@ -1126,7 +1154,7 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 | 항목 | 규칙 |
 |---|---|
 | 지우지 않고 끈다 | 사용자·조직·그룹·역할·리소스·권한·범위·정책·직무 분리·SSO 클라이언트는 삭제하지 않고 `is_active`(사용자는 `status`)로 끈다. 감사 기록과 판정 로그가 이 행을 가리키기 때문이다 |
-| 연결은 기간을 끝낸다 | 역할의 권한(`ROLE_PERMISSION.valid_until`), 정책 예외, 직무 분리 예외는 "지금"으로 기간을 끝내 회수한다. 이력은 남는다 |
+| 연결은 기간을 끝낸다 | 역할의 권한(`ROLE_PERMISSION.valid_until`), 정책 예외, 직무 분리 예외는 "지금"으로 기간을 끝내 회수한다. 이력은 남는다. 직접(`DIRECT`) 할당의 종료 시각은 지금 유효한 할당만, 지금 이후(또는 기한 없음)로 바꿀 수 있다(이력 `MODIFY`). 다른 출처의 기간은 그 출처 절차가 정한다 |
 | 바꿀 수 없는 값 | 코드(사번·역할·리소스 키·범위·정책 코드), 사용자 구분(EMPLOYEE·EXTERNAL), 권한의 행위·효과, 정책의 유형·효과, 범위의 유형·대상. 의미가 바뀌면 새로 만든다 |
 | 끌 때 조건 | 조직은 구성원·사용 중인 하위 조직이 없어야, 그룹은 구성원이 없어야 끌 수 있다. 전체(GLOBAL) 범위와 관리 콘솔 클라이언트(`iam-admin`)는 끌 수 없다 |
 | 효력 | 사용자: 로그인 불가 + PDP 가 거부(주체 상태 ACTIVE 만 통과). 역할·권한·리소스·범위·정책·직무 분리: PDP·부여 검사에서 빠진다. SSO 클라이언트: `client_id` 조회가 막혀 authorize·token 요청이 거부된다. 이미 발급된 토큰은 만료까지 남는다 |
@@ -1137,10 +1165,10 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 | 항목 | 규칙 |
 |---|---|
 | 직무 분리 | 모든 부여 경로(직접·조직·그룹·JIT·위임)에서 충돌 역할을 이미 가진 subject 에게 부여하면 거부하고, 그 부여를 일으킨 변경(예: 소속 추가)까지 롤백한다. 유효한 `ROLE_CONFLICT_EXCEPTION` 이 있으면 허용. **비상 접근은 검사하지 않고** 감사 기록으로 남긴다. 충돌 정의 이전에 이미 두 역할을 가진 subject 는 그대로 둔다 |
-| JIT | 사유 필수, 기간 최대 30일, 같은 역할 대기 요청 1건. 요청 시점에 직무 분리 위반을 먼저 거부. 승인되면 `ROLE_ASSIGNMENT(source_type=JIT, source_id=request_id)` 를 요청 기간으로 만든다 |
+| JIT | 사유 필수, 기간 최대 30일, 같은 역할 대기 요청 1건. 요청 시점에 직무 분리 위반을 먼저 거부. 승인되면 `ROLE_ASSIGNMENT(source_type=JIT, source_id=request_id)` 를 요청 기간으로 만든다. 요청이 끝나면(승인·반려·취소·만료) `ACCESS_REQUEST.closed_at`(V23)에 시각을 남긴다 |
 | 승인 조건 | `APPROVAL_POLICY` 중 역할의 role_type 이 같은 것 → role_type 이 빈 기본 정책 → 없으면 1명. 서로 다른 승인자 수, `require_security_team` = `SECURITY_TEAM` 그룹 구성원 1명 이상, `require_owner` = **요청자 PRIMARY 소속 조직의 관리자(is_manager)** 1명 이상. 본인 승인 불가. `resource_sensitivity` 는 아직 쓰지 않음 |
-| 위임 | 위임자가 직접 가진(위임받지 않은) 같은 역할·scope 만. 재위임 불가. 위임 기간으로 `ROLE_ASSIGNMENT(DELEGATION)` 생성. 위임자가 그 역할을 잃으면(회수·만료) 위임도 자동 종료 |
-| 비상 접근 | 정책별 사유·MFA·승인 요구. 승인이 필요 없으면 즉시, 필요하면 승인 후 최대 시간만큼 `ROLE_ASSIGNMENT(BREAK_GLASS)` 생성. 최대 24시간 |
+| 위임 | 위임자가 직접 가진(위임받지 않은) 같은 역할·scope 만. 재위임 불가. 위임 기간으로 `ROLE_ASSIGNMENT(DELEGATION)` 생성. 위임자가 그 역할을 잃으면(회수·만료) 위임도 자동 종료. 로그인한 본인 JWT 로만 위임한다(API 키 불가). 관리 콘솔 권한이 있는 역할은 `amr` 에 `otp`·`hwk` 가 있는 토큰이어야 한다. 위임자 본인이나 관리자(`DELEGATION` UPDATE)가 회수하면 위임 할당도 바로 회수된다 |
+| 비상 접근 | 정책별 사유·MFA·승인 요구. 승인이 필요 없으면 즉시, 필요하면 승인 후 최대 시간만큼 `ROLE_ASSIGNMENT(BREAK_GLASS)` 생성. 최대 24시간. `eligible_group_id`(V23)가 있으면 켜진 그 그룹의 지금 유효한 구성원만 시작·요청할 수 있고, 그룹이 꺼져 있으면 아무도 못 쓴다. 관리 콘솔 권한이 있는 역할을 주는 정책은 승인 필요로만 만들고 고치고 켤 수 있으며, 승인 없이 시작하는 정책이 쓰는 역할에는 콘솔 권한을 더할 수 없다(MFA 만으로 누구나 관리자가 되지 않게). 본인이나 관리자가 끝내면 세션 `REVOKED`, 할당 회수 |
 | 만료 | 1분마다(`iam.scheduling`) 기간이 끝난 할당 → `EXPIRED`(이력 `change_type = EXPIRE`), 대기 요청 → `EXPIRED`, 위임·비상 접근 상태 갱신. 판정은 기간으로 이미 걸러내므로 상태·이력 정리 작업이다. 여러 인스턴스에서는 ShedLock(`shedlock` 테이블, V8)으로 한 인스턴스만 실행한다 |
 | 접근 요청 위험 | 요청의 `risk_level` 은 역할 성격(특권 HIGH, 민감 MEDIUM, 그 외 LOW)과 위험 평가(JIT·비상 접근은 PRIVILEGE) 중 높은 쪽. 평가는 `RISK_ASSESSMENT.request_id` 로 요청에 연결해 남긴다 |
 

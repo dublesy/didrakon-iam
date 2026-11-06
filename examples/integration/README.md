@@ -25,18 +25,20 @@
 | `GET /callback` | `state` 확인 → code 교환(`client_secret_basic` + `code_verifier`) → **ID 토큰 검증**(JWKS 서명, `iss`, `aud`, `exp`, `nonce`) → 계정 연결 → 서버 세션 생성 → `/me` 로 |
 | `GET /me` | 로그인했으면 `200` `{"sub","name","empNo","roles","localUserId","sid"}`, 아니면 `401` |
 | `GET /logout` | 앱 세션을 지우고 IAM `/connect/logout?id_token_hint=…` 로 |
-| `POST /backchannel-logout` | `logout_token` 검증(서명, `typ: logout+jwt`, `iss`, `aud`, `iat`·`exp`, `events`, `nonce` 없음) → `sid` 가 있으면 그 세션만, 없으면 `sub` 의 모든 세션 종료 → `200` (실패 `400`) |
+| `POST /backchannel-logout` | `logout_token` 검증(서명, `typ: logout+jwt`, `iss`, `aud`, `iat`·`exp`, `events`, `nonce` 없음) → `sid` 가 있으면 그 세션만(IAM 로그아웃·관리자의 세션 하나 종료), 없으면 `sub` 의 모든 세션 종료(비밀번호 변경·사용 중지·잠김·퇴사·관리자의 모든 세션 끊기) → `200` (실패 `400`) |
 | `POST /webhooks/iam` | 받은 본문 그대로 HMAC-SHA256 서명 검증(상수 시간 비교) → 시각 5분 이내 → `X-Didrakon-Delivery` 중복 거르기 → `user.status_changed` 가 `RETIRED` 면 로컬 계정 끄고 세션 종료 → `200` (서명·시각 실패 `401`) |
 
 **계정 연결**: 로컬 사용자 저장소에 `iam_subject_id` 를 둔다. `sub` 로 찾고, 없으면 토큰의 `emp_no` 로 찾아 연결하고, 그래도 없으면 새로 만든다(JIT). 예제는 메모리나 SQLite 에 두지만 실제 시스템은 [데이터 이관 가이드](../../docs/integration/database.md)대로 DB 컬럼을 쓴다.
 
 **세션**: 서버에 둔다(메모리·SQLite). 세션 전체를 쿠키에만 담으면 back-channel 로그아웃으로 끝낼 수 없다.
 
+**토큰**: 예제는 ID 토큰의 claim(`sub`·`name`·`emp_no`·`roles`·`sid`)만 쓰고, ID 토큰은 로그아웃할 때 `id_token_hint` 로만 보낸다. refresh token 은 쓰지 않는다 (쓴다면 매번 새 값으로 바뀌고, IAM 로그인 세션이 끝나면 `invalid_grant` 가 나므로 다시 로그인시킨다). IAM `/api` 는 로그인한 사용자의 토큰을 받지 않으므로, 앱 서버가 IAM API 를 부를 때는 client credentials 토큰(권한 판정·인사 연동 API)이나 서비스 계정 API 키를 쓴다.
+
 ## 실행과 검증
 
 1. 로컬 IAM(`http://localhost:8080`)을 띄운다.
 2. 관리 콘솔에서 예제마다 클라이언트를 등록한다.
-   - 코드 `sample-<폴더>` (예: `sample-go`), 유형 `WEB`, 기밀
+   - 코드 `sample-<폴더>` (예: `sample-go`. 숫자만으로 된 코드는 만들 수 없다), 유형 `WEB`, 기밀
    - 리다이렉트 `http://localhost:<포트>/callback`, 로그아웃 뒤 돌아갈 주소 `http://localhost:<포트>/`, 로그아웃 알림 주소 `http://localhost:<포트>/backchannel-logout`
    - `proxy/` 만 다르다: 로그아웃 알림 주소 `http://localhost:4110/callback?logout=backchannel`, 로그아웃 뒤 돌아갈 주소 `http://localhost:4110/me`
 3. `.env.local` (커밋하지 않음)에 값을 둔다.

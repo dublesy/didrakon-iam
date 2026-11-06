@@ -146,5 +146,5 @@ python3 verify.py http://localhost:4104 --webhook-only   # 클라이언트 등�
 [mozilla-django-oidc](https://mozilla-django-oidc.readthedocs.io/) 를 쓴다. 예제는 따로 두지 않는다.
 
 - discovery 를 읽지 않으므로 `OIDC_OP_AUTHORIZATION_ENDPOINT`·`OIDC_OP_TOKEN_ENDPOINT`·`OIDC_OP_USER_ENDPOINT`·`OIDC_OP_JWKS_ENDPOINT` 를 [연동 가이드의 주소](README.md#3-로그인-흐름)로 직접 넣고, `OIDC_RP_SIGN_ALGO = "RS256"`, `OIDC_RP_SCOPES = "openid profile"`, `OIDC_USE_PKCE = True` 로 둔다. nonce 는 기본으로 켜져 있다.
-- **기본 계정 연결이 이메일이다.** `OIDCAuthenticationBackend` 를 상속해 `filter_users_by_claims` 를 `iam_subject_id`(`sub`) → `emp_no` 순서로 바꾸고, `create_user` 에서 `iam_subject_id` 를 저장한다. 기본 구현은 `/userinfo` 응답으로 사용자를 찾으므로 `emp_no`·`roles` 가 거기 없으면 `get_userinfo` 를 고쳐 검증한 ID 토큰 payload 를 쓴다.
+- **기본 계정 연결이 이메일이다.** `OIDCAuthenticationBackend` 를 상속해 `filter_users_by_claims` 를 `iam_subject_id`(`sub`) → `emp_no` 순서로 바꾸고, `create_user` 에서 `iam_subject_id` 를 저장한다. 기본 구현은 `/userinfo` 응답으로 사용자를 찾는데 IAM 의 userinfo 에는 `emp_no`·`roles` 가 없으므로, `get_userinfo` 를 고쳐 검증한 ID 토큰 payload 를 쓴다.
 - back-channel 로그아웃은 라이브러리에 없다. 위 [back-channel 로그아웃](#4-핵심-코드) 검증을 뷰로 만들고(`csrf_exempt`), 세션은 DB·캐시 백엔드(`django.contrib.sessions`)에 두어 로그인할 때 `sid`·`sub` 를 세션에 적고 그 세션 행을 지운다. `signed_cookies` 세션 백엔드는 쓰지 않는다.

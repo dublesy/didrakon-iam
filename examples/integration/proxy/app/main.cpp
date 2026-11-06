@@ -133,7 +133,8 @@ void webhook(const std::string& secret, const httplib::Request& req, httplib::Re
         std::lock_guard<std::mutex> lock(mu);
         for (auto& u : users)
             if (u.iam_subject_id == sub) u.active = false;  // 실제 시스템은 권한도 모두 회수한다
-        // 프록시 세션은 IAM 이 퇴사 처리 때 보내는 back-channel 로그아웃이 끝낸다 (docs/integration/proxy.md 주의할 점)
+        // 프록시 세션은 남는다: 퇴사·비밀번호 변경 같은 사용자 단위 back-channel 로그아웃은 sid 없이 sub 만 담아 오는데,
+        // mod_auth_openidc 는 sub 로 세션을 찾지 못한다. 그래서 /me 가 매 요청 로컬 계정을 확인한다 (docs/integration/proxy.md 주의할 점)
     }
     reply_json(res, 200, {{"ok", true}});
 }

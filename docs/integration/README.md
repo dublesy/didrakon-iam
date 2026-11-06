@@ -24,11 +24,15 @@ IAM 은 표준 OIDC(OpenID Connect) IdP 다. HTTP 를 보내고 JWT 서명을 �
 | 유형 | 사람이 로그인하는 웹·모바일은 `WEB`·`MOBILE`, 서버 간 호출은 `API`·`BATCH` |
 | 기밀 클라이언트 | 서버에서 토큰을 교환하면 켠다 (비밀값 발급). 브라우저·앱만 있는 SPA·모바일은 끄고 PKCE 를 쓴다 |
 | 리다이렉트 URI | 로그인 뒤 돌아올 주소. **정확히 일치**해야 한다 (`https://erp.example.com/callback`) |
+| 로그아웃 후 주소 | IAM 로그아웃 뒤 돌아올 주소 (`post_logout_redirect_uri`). 이것도 등록한 값과 같아야 한다 |
 | 로그아웃 알림 주소 | back-channel 로그아웃 토큰을 받을 주소 (`https://erp.example.com/backchannel-logout`) |
-| MFA 필수 | 개인정보·결제 시스템은 켠다. 켜면 2단계 인증을 거친 로그인만 토큰을 받는다 |
+| MFA 필수 | 개인정보·결제 시스템은 켠다. 켜면 인증 앱(TOTP) 또는 패스키로 로그인한 경우(`amr` 에 `otp` 또는 `hwk`)만 토큰을 받는다. 비밀번호로만 로그인했으면 인증 앱 코드를 더 묻고, 인증 앱을 등록하지 않은 사용자는 거부한다 |
 | Supabase 호환 | Supabase 를 쓰는 시스템만 켠다. 토큰에 `role: "authenticated"` 가 들어간다 ([데이터 이관 가이드](database.md#supabase)) |
+| 앱 시작 주소 | (선택, `WEB`·`MOBILE`) 넣으면 IAM 홈의 내 앱 목록에 나온다. http(s) 절대 주소 |
 
 - 비밀값은 **등록할 때 한 번만** 보인다. 시스템의 비밀 저장소(환경변수, Vault 등)에 넣고 코드나 저장소에 두지 않는다.
+- 등록한 뒤에도 이름, MFA 필수, 로그아웃 알림 주소, Supabase 호환, 앱 시작 주소, 리다이렉트 URI·로그아웃 후 주소·scope 를 고칠 수 있다 (`PUT /api/v1/clients/{id}`). 클라이언트 코드·유형·기밀 여부는 바꿀 수 없다.
+- 비밀값이 새었거나 주기적으로 바꿀 때는 **비밀값 재발급**(`POST /api/v1/clients/{id}/rotate-secret`)을 한다. 새 비밀값은 이때 한 번만 보이고, 이전 비밀값은 바로 쓸 수 없다 (이미 발급된 토큰은 만료까지 유효). 비밀값 없는 클라이언트는 재발급할 수 없다.
 - 웹훅은 `운영 → 웹훅`에서 따로 구독한다 (2단계).
 
 ## 3. 로그인 흐름
@@ -51,7 +55,7 @@ IAM 은 표준 OIDC(OpenID Connect) IdP 다. HTTP 를 보내고 JWT 서명을 �
 흐름은 **Authorization Code + PKCE** 다. 기밀 클라이언트도 PKCE 를 함께 쓰는 것을 권한다.
 
 1. `/login`: `state`, `nonce`, PKCE `code_verifier` 를 만들어 세션에 두고 IAM 인가 주소로 보낸다 (`scope=openid profile`)
-2. IAM 이 로그인을 처리한다 (2단계 인증·위험 평가 포함)
+2. IAM 이 로그인을 처리한다 (2단계 인증·위험 평가 포함). 2단계 인증 수단이 패스키뿐인 사용자는 비밀번호로는 들어갈 수 없고 패스키로 로그인한다
 3. `/callback`: `state` 를 확인하고 `code` 를 토큰으로 바꾼 뒤 **ID 토큰을 검증**한다
    - 서명(JWKS), `iss` = IAM 주소, `aud` 에 내 `client_id`, `exp`, `nonce`
 4. `sub` 로 로컬 계정을 찾아([계정 연결](#5-계정-연결)) 세션을 만든다
@@ -70,16 +74,22 @@ IAM 은 표준 OIDC(OpenID Connect) IdP 다. HTTP 를 보내고 JWT 서명을 �
 | `sid` | IAM 로그인 세션을 가리키는 값 (ID 토큰). back-channel 로그아웃이 이 값을 보낸다 | |
 | `role` | Supabase 호환을 켠 클라이언트만 `"authenticated"` | |
 
+- 위 IAM claim 은 ID 토큰과 접근 토큰에서 읽는다. `/userinfo` 는 `sub` 와 `name` 같은 표준 claim 만 돌려주고 `emp_no`·`roles` 등은 주지 않는다.
+- `name`·`user_kind`·`emp_no`·`primary_org_id`·`company_org_id`·`roles` 는 사용자 토큰(접근·ID 토큰)에만 들어간다. 소속이 없으면 `primary_org_id`·`company_org_id` 가 없다. client credentials 토큰은 `sub` 가 클라이언트 코드이고 이 값들이 없다.
 - 접근 토큰은 **10분**, refresh token 은 8시간이고 refresh 할 때마다 새로 받는다 (예전 것은 쓸 수 없다).
+- refresh token 은 그것을 낳은 **IAM 로그인 세션이 살아 있을 때만** 쓸 수 있다. 로그인 세션이 끝나면(로그인 후 8시간, 로그아웃, 관리자 세션 종료, 비밀번호 변경, 사용 중지·잠금·퇴사) refresh 는 `invalid_grant` 로 실패하니 다시 로그인시킨다.
+- 비밀값 없는 클라이언트(PKCE 만 쓰는 SPA·모바일)는 refresh token 을 받지 않는다. 접근 토큰이 끝나면 다시 인가 요청을 보낸다 (IAM 로그인 세션이 살아 있으면 로그인 화면 없이 돌아온다).
 - 토큰 안의 값은 발급 시점 값이다. 역할·소속이 바뀌어도 토큰 수명 동안은 그대로이므로 메뉴 노출 같은 거친 판단에만 쓰고, 민감한 동작은 [권한 판정 API](#8-권한-판정-api-3단계)로 그때그때 묻는다.
 
 ## 4. 로그아웃
 
 - **앱에서 로그아웃**: 앱 세션을 지운 뒤 `/connect/logout?id_token_hint=...&post_logout_redirect_uri=...` 로 보내 IAM 로그인 세션까지 끝낸다. `post_logout_redirect_uri` 는 등록한 값이어야 한다.
-- **back-channel 로그아웃 받기 (필수)**: IAM 에서 로그아웃하거나 관리자가 세션을 끊거나, 사용자를 사용 중지·잠금·퇴사시키면 IAM 이 등록한 주소로 `POST` 한다.
+- **back-channel 로그아웃 받기 (필수)**: IAM 에서 로그아웃하거나 관리자가 세션을 끊거나, 사용자를 사용 중지·잠금·퇴사시키거나 비밀번호가 바뀌면(본인 변경·셀프 재설정·관리자 초기화) IAM 이 등록한 주소로 `POST` 한다. 이때 IAM 은 그 사용자의 세션과 토큰도 함께 회수한다.
   - 본문: `application/x-www-form-urlencoded` 의 `logout_token`
   - 검증: 서명(JWKS), 헤더 `typ: logout+jwt`, `iss`, `aud` 에 내 `client_id`, `iat`·`exp`, `events` 에 `http://schemas.openid.net/event/backchannel-logout`, `nonce` 가 **없어야** 한다
   - `sid` 가 있으면 그 로그인 세션 하나(로그인할 때 받은 ID 토큰의 `sid` 와 같은 값)만, 없으면 `sub` 의 세션을 **모두** 끝낸다
+    - `sid` 가 오는 경우: 로그아웃, 관리자가 세션 하나를 끊음, 본인이 "다른 기기에서 모두 로그아웃"
+    - `sub` 만 오는 경우: 사용 중지·잠금·퇴사, 비밀번호 변경, 관리자의 "모든 세션 끊기"
   - 처리했으면 `200`, 검증에 실패하면 `400`
   - 세션을 서버(DB·Redis·메모리)에 두어야 남의 요청으로 끝낼 수 있다. 세션 전체를 쿠키에만 담는 방식은 back-channel 로그아웃을 받을 수 없다
 
@@ -123,17 +133,21 @@ X-Didrakon-Signature: sha256=<hex>
 | 이벤트 | data | 시스템이 할 일 |
 |---|---|---|
 | `user.status_changed` | `subjectId`, `status` | `RETIRED`: 계정 끄고 **권한 모두 회수**. `DISABLED`·`LOCKED`: 계정 정지(권한 보존). `ACTIVE`: 정지 해제 |
-| `membership.changed` | `subjectId`, `change`(`JOINED`·`LEFT`·`UPDATED`·`TRANSFERRED`), 조직 ID | `TRANSFERRED`(부서 이동): 기본 권한만 남기고 회수하거나 새 부서 관리자 확인 대기로 표시 |
+| `membership.changed` | `subjectId`, `change`(`JOINED`·`LEFT`·`UPDATED`·`TRANSFERRED`), 조직 ID (`orgId`, `TRANSFERRED` 면 `fromOrgId`·`toOrgId`) | `TRANSFERRED`(부서 이동): 기본 권한만 남기고 회수하거나 새 부서 관리자 확인 대기로 표시 |
+| `group_membership.changed` | `groupId`, `subjectId`, `change` | 그룹 단위로 권한을 주는 시스템이면 해당 사용자 재계산 |
 | `organization.moved` | `orgId`, `subtreeOrgIds` | 조직 단위로 권한을 주는 시스템이면 해당 조직 사용자 재계산 |
 | `role_assignment.changed` | `assignmentId`, `subjectId`, `roleId`, `changeType` | (3단계) 역할 캐시 무효화 |
-| `user.credential_changed` | `subjectId`, `credentialType`, `change` | 보안 민감 시스템이면 알림·재인증 요구 |
+| `access_request.changed` | `requestId`, `requestType`, `subjectId`, `roleId`, `status` | 대개 무시 (승인돼 역할이 생기면 `role_assignment.changed` 도 온다) |
+| `access_review.changed` | `campaignId`, `action`, `itemCount` | 대개 무시 (회수 결정은 `role_assignment.changed` 로도 온다) |
+| `user.credential_changed` | `subjectId`, `credentialType`(`PASSKEY`), `change`(`ADDED`·`REMOVED`) | 보안 민감 시스템이면 알림·재인증 요구 |
 | `config.changed` | `target`, `targetId`, `action` | 대개 무시 |
+| `webhook.test` | `subscriptionId` | 콘솔의 "테스트 전송"으로 그 구독에만 온다. `200` 만 돌려준다 |
 
 본문에는 ID 와 상태 코드만 있다. 이름·연락처 같은 개인정보가 필요하면 IAM API 로 조회한다.
 
 ### 대사 작업 (필수)
 
-웹훅은 시스템이 오래 꺼져 있으면 결국 포기(DEAD)된다. 하루 한 번 **로컬 활성 계정의 `iam_subject_id` 목록**을 IAM 사용자 상태와 비교해 IAM 에서 `ACTIVE` 가 아닌 사람을 정리한다. 상태는 관리 API(`GET /api/v1/users/{subjectId}`)나 [계정 연결 조회 API](database.md#계정-연결-조회-api)로 확인한다.
+웹훅은 시스템이 오래 꺼져 있으면 결국 포기(DEAD)된다. 하루 한 번 **로컬 활성 계정의 `iam_subject_id` 목록**을 IAM 사용자 상태와 비교해 IAM 에서 `ACTIVE` 가 아닌 사람을 정리한다. 상태는 관리 API(`GET /api/v1/users/{subjectId}`)나 [계정 연결 조회 API](database.md#계정-연결-조회-api)로 확인한다. 둘 다 사용자 조회 권한을 받은 서비스 계정의 API 키로 부른다 ([7. 서버 간 호출](#7-서버-간-호출-배치api)).
 
 ## 7. 서버 간 호출 (배치·API)
 
@@ -145,6 +159,11 @@ grant_type=client_credentials&scope=iam.authz.check
 ```
 
 또는 서비스 계정 사용자에게 API 키를 발급해 `X-API-Key` 헤더로 부른다 (`/api/v1/subjects/{id}/api-keys`).
+
+- **`/api` 는 관리 콘솔(`iam-admin`)에 발급된 접근 토큰, client credentials 토큰, API 키만 받는다.** 시스템이 사용자 로그인으로 받은 접근 토큰이나 ID 토큰으로 부르면 `401` 이다. 사용자 대신 부르지 말고 시스템 자격으로 부른다.
+- client credentials 토큰은 사용자(subject)가 없어 scope 로 열어 둔 API 만 부를 수 있다: 권한 판정(`iam.authz.check`), HR 연동(`iam.hr.sync`). 클라이언트 등록 때 이 scope 를 넣어 둔다.
+- 사용자 조회(`/api/v1/users/{subjectId}`, `/api/v1/users/lookup`)처럼 권한이 필요한 나머지 API 는 그 권한을 가진 역할을 할당한 서비스 계정의 API 키로 부른다.
+- IP 당 1분 호출 한도: 로그인 20, 토큰 발급·갱신(`/oauth2/token`) 120, 권한 판정 6000, 그 밖의 `/api` 600. 넘으면 `429` 와 `Retry-After`(초)가 온다. 토큰은 만료 전까지 재사용하고 요청마다 새로 받지 않는다.
 
 ## 8. 권한 판정 API (3단계)
 
@@ -174,6 +193,8 @@ POST /api/v1/authz/check     (iam.authz.check scope 토큰 또는 IAM_AUTHZ_CLIE
 - [ ] 리다이렉트 URI 는 https 이고 등록한 값과 정확히 같다
 - [ ] 자체 비밀번호 로그인이 막혀 있다 (비상 계정 제외)
 - [ ] back-channel 로그아웃을 받으면 실제로 세션이 끝난다
+- [ ] refresh 가 `invalid_grant` 로 실패하면 앱 세션을 끝내고 다시 로그인시킨다
+- [ ] `/api` 는 사용자 토큰이 아니라 client credentials 토큰이나 서비스 계정 API 키로 부른다
 - [ ] 웹훅 서명·시각·중복을 검사하고, 퇴사 이벤트로 권한이 회수된다
 - [ ] 대사 작업이 돈다
 - [ ] 클라이언트 비밀값·웹훅 비밀값이 코드·저장소·로그에 없다

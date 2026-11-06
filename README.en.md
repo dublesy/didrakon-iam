@@ -6,7 +6,14 @@ The name comes from Greek *di* (two) + *drakōn* (dragon): two dragons, authenti
 
 It is built for organizations shaped like Korean companies — employee numbers, an HR system as the source of truth, org-scoped administrators, and periodic access reviews with evidence — but works as a general-purpose IAM.
 
-> The primary documentation is in Korean: [README.md](README.md) (full reference), [docs/erd-v2.md](docs/erd-v2.md) (data model and rules), [docs/integration/README.md](docs/integration/README.md) (integration guides and verified example apps). This page is an English overview.
+> The detailed documentation is in Korean. This page is an English overview.
+>
+> - [docs/architecture.md](docs/architecture.md) — modules, dependency rules, domain events
+> - [docs/security.md](docs/security.md) — tokens, sessions, revocation, login protection, passkeys, admin protection
+> - [docs/api.md](docs/api.md) — management, authorization-check and self-service APIs
+> - [docs/admin-console.md](docs/admin-console.md) — how the console works, menus, code layout
+> - [docs/erd-v2.md](docs/erd-v2.md) — data model and domain rules
+> - [docs/integration/README.md](docs/integration/README.md) — integration guides and verified example apps
 
 ## Architecture
 
@@ -55,7 +62,7 @@ Modules talk to each other through domain events handled synchronously in the sa
 - Logout, session revocation, password change, disabling and retirement revoke the related sessions, refresh tokens and API keys. Refresh tokens stop working when the login session that issued them ends (8 hours absolute).
 - Per-IP rate limits for login, token and API endpoints.
 
-See [README.md](README.md) for the full table of security chains, token claims and API paths.
+See [docs/security.md](docs/security.md) for security chains and token claims, and [docs/api.md](docs/api.md) for API paths.
 
 ## Quick start
 

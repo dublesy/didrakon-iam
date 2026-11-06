@@ -140,6 +140,6 @@ python3 verify.py http://localhost:4109 --webhook-only   # 클라이언트 등�
 [omniauth_openid_connect](https://github.com/omniauth/omniauth_openid_connect) 를 쓴다 (안에서 같은 `openid_connect` gem 을 쓴다). 예제는 따로 두지 않는다.
 
 - `config/initializers/omniauth.rb` 에 `provider :openid_connect, issuer:, discovery: true, scope: %i[openid profile], response_type: :code, pkce: true, client_auth_method: :basic, client_options: { identifier:, secret:, redirect_uri: }` 로 등록한다. nonce 는 기본으로 보낸다. `omniauth-rails_csrf_protection` 을 넣고 로그인 링크는 `POST /auth/openid_connect` 로 보낸다.
-- 콜백 컨트롤러에서 `request.env["omniauth.auth"]` 의 `uid`(= `sub`)와 `extra.raw_info` 로 [계정 연결](README.md#5-계정-연결)한다. `emp_no`·`roles` 가 `raw_info`(userinfo 응답)에 없으면 `extra.raw_info` 대신 검증된 ID 토큰(`credentials.id_token`)을 위처럼 decode 해 읽는다.
+- 콜백 컨트롤러에서 `request.env["omniauth.auth"]` 의 `uid`(= `sub`)와 `extra.raw_info` 로 [계정 연결](README.md#5-계정-연결)한다. IAM 의 userinfo 응답(`raw_info`)에는 `sub` 와 `name` 같은 표준 claim 만 있고 `emp_no`·`roles` 는 없으므로, 이 값은 검증된 ID 토큰(`credentials.id_token`)을 위처럼 decode 해 읽는다.
 - 기본 `CookieStore` 세션은 back-channel 로그아웃으로 끝낼 수 없다. `activerecord-session_store`·Redis 세션 저장소로 바꾸고, 로그인할 때 `sid`·`sub` 를 세션 행에 적어 둔다.
 - back-channel 로그아웃은 OmniAuth 에 없다. 위 [back-channel 로그아웃](#4-핵심-코드) 코드를 컨트롤러로 만들고(`skip_forgery_protection`), 찾은 세션 행을 지운다.

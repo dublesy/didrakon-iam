@@ -1,10 +1,10 @@
 # DIDRAKON IAM — 작업 지침
 
-범용 IAM 플랫폼. 구조·API·실행 방법은 [README.md](README.md), 데이터 모델과 규칙은 [docs/erd-v2.md](docs/erd-v2.md), 화면 규칙은 [admin/DESIGN.md](admin/DESIGN.md) 를 먼저 읽는다. 여기에는 그 문서에 없는, 작업할 때 지켜야 할 것만 둔다.
+범용 IAM 플랫폼. 개요·실행 방법은 [README.md](README.md), 구조는 [docs/architecture.md](docs/architecture.md), 보안은 [docs/security.md](docs/security.md), API 는 [docs/api.md](docs/api.md), 데이터 모델과 규칙은 [docs/erd-v2.md](docs/erd-v2.md), 화면 규칙은 [admin/DESIGN.md](admin/DESIGN.md) 를 먼저 읽는다. 여기에는 그 문서에 없는, 작업할 때 지켜야 할 것만 둔다.
 
 ## 구조 규칙
 
-- 패키지는 `com.didrakon.iam.<모듈>`. 모듈 의존 방향은 README 의 "모듈 의존 방향"을 따르고, 역방향 의존을 만들지 않는다.
+- 패키지는 `com.didrakon.iam.<모듈>`. 모듈 의존 방향은 [docs/architecture.md](docs/architecture.md) 의 "모듈 의존 방향"을 따르고, 역방향 의존을 만들지 않는다.
 - 모듈 간 연동은 **도메인 이벤트**(같은 트랜잭션, 동기)로 한다. 발행 모듈은 구독 모듈을 모른다. 하위 모듈이 상위 모듈 기능이 필요하면 인터페이스를 두고 위에서 구현한다 (예: `RoleGrantGuard`, `UserTokenClaims`).
 - audit 는 맨 끝 소비자다. 다른 모듈이 audit 에 의존하지 않는다. 감사가 필요한 변경은 이벤트를 내고 audit 에 리스너를 둔다 (기준 데이터 변경은 `AdminChangeEvent`).
 - 트랜잭션은 서비스에만. 컨트롤러는 얇게, API DTO 는 `iam-app/api` 에 둔다.

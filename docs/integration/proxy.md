@@ -126,7 +126,7 @@ python3 verify.py http://localhost:4110 --webhook-only   # 클라이언트 등�
 
 - **앱은 프록시를 거쳐서만 닿아야 한다.** 앱은 `OIDC_CLAIM_*` 헤더를 그대로 믿는다. 앱 포트가 밖에 열려 있으면 누구나 헤더를 꾸며 다른 사람으로 들어온다. 예제는 앱을 `127.0.0.1` 에만 연다. 서버가 나뉘면 방화벽·보안 그룹으로 프록시에서 오는 연결만 받고, 가능하면 mTLS 를 쓴다.
 - mod_auth_openidc 는 보호한 경로로 들어온 같은 이름의 헤더를 지운다(`OIDCScrubRequestHeaders`, 기본 On). 로그인 없이 통과시키는 `/webhooks/iam` 에서는 지우지 않으므로, 앱은 그 경로에서 claim 헤더를 쓰지 않는다.
-- **사용자 단위 back-channel 로그아웃은 프록시 세션을 끝내지 못한다.** IAM 은 사용 중지·잠금·퇴사 때 `sid` 없이 `sub` 만 담은 로그아웃 토큰을 보내는데, mod_auth_openidc 2.4.17 은 로그인 때 ID 토큰의 `sid` 로만 세션을 색인해 `sub` 로는 찾지 못한다(찾지 못해도 `200` 을 돌려준다). 그래서 앱이 **퇴사 웹훅으로 로컬 계정을 끄고 매 요청에서 확인**해야 한다. 잠금·사용 중지까지 막으려면 `DISABLED`·`LOCKED` 도 같은 식으로 처리하거나 `OIDCSessionInactivityTimeout` 을 짧게 둔다. IAM 로그아웃·관리자 세션 종료(`sid` 있음)는 프록시 세션이 바로 끝난다.
+- **사용자 단위 back-channel 로그아웃은 프록시 세션을 끝내지 못한다.** IAM 은 사용 중지·잠금·퇴사, 비밀번호 변경, 관리자의 "모든 세션 끊기" 때 `sid` 없이 `sub` 만 담은 로그아웃 토큰을 보내는데, mod_auth_openidc 2.4.17 은 로그인 때 ID 토큰의 `sid` 로만 세션을 색인해 `sub` 로는 찾지 못한다(찾지 못해도 `200` 을 돌려준다). 그래서 앱이 **퇴사 웹훅으로 로컬 계정을 끄고 매 요청에서 확인**해야 한다. 잠금·사용 중지까지 막으려면 `DISABLED`·`LOCKED` 도 같은 식으로 처리하거나 `OIDCSessionInactivityTimeout` 을 짧게 둔다. 비밀번호 변경은 웹훅으로 오지 않으므로 `OIDCSessionInactivityTimeout` 을 짧게 두어 남는 시간을 줄인다. IAM 로그아웃·관리자의 세션 하나 종료(`sid` 있음)는 프록시 세션이 바로 끝난다.
 - mod_auth_openidc 2.4.17 은 로그아웃 토큰의 `typ: logout+jwt` 를 검사하지 않는다. 서명·`iss`·`aud`·`iat`·`events`·`nonce` 없음·`jti` 재사용은 검사한다.
 - `OIDCCryptoPassphrase` 는 저장소·이미지에 두지 않는다. 예제는 시작할 때마다 만들어 재시작하면 로그인이 풀린다. 서버가 여러 대면 같은 값을 비밀 저장소에서 넣고 `OIDCCacheType redis` 로 세션 캐시를 공유한다.
 - 역할 같은 배열 claim 은 쉼표로 이어 오므로(`OIDCClaimDelimiter`), 값에 쉼표가 있으면 구분자를 바꾼다. 이름 같은 한글 claim 은 UTF-8 그대로 온다(`OIDCPassClaimsAs headers none`). 앱이 헤더의 비 ASCII 를 못 다루면 `base64url` 로 바꾸고 앱에서 디코드한다.

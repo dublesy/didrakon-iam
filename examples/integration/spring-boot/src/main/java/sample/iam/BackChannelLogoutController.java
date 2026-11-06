@@ -22,7 +22,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * OIDC Back-Channel Logout 1.0. IAM 이 사용자 로그아웃·세션 강제 종료·사용 중지 때 서버에서 직접 부른다.
+ * OIDC Back-Channel Logout 1.0. IAM 이 사용자 로그아웃·세션 강제 종료·비밀번호 변경·사용 중지 때 서버에서 직접 부른다.
+ * 로그아웃·세션 하나 종료면 sid 가 오고, 사용자 단위(비밀번호 변경·사용 중지·모든 세션 끊기)면 sub 만 온다.
  */
 @RestController
 public class BackChannelLogoutController {
