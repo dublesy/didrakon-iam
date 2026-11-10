@@ -1,5 +1,9 @@
 # DIDRAKON IAM
 
+[![CI](https://github.com/dublesy/didrakon-iam/actions/workflows/ci.yml/badge.svg)](https://github.com/dublesy/didrakon-iam/actions/workflows/ci.yml)
+
+> **상태: 초기 버전.** 기능을 갖추고 자동 테스트와 코드 보안 점검을 거쳤지만, 아직 실제 서비스에서 운영하며 검증하지는 않았습니다. 운영에 쓰기 전에 자체 환경에서 충분히 확인하세요. 문제를 찾으면 이슈로, 보안 취약점은 [SECURITY.md](SECURITY.md) 의 방법으로 알려 주세요.
+
 계정·로그인·권한을 한곳에서 관리하는 IAM 플랫폼입니다. SSO(OIDC), 권한 판정(RBAC + ABAC + ReBAC), 권한 거버넌스, 위험 평가, 감사를 함께 제공합니다.
 
 사번, 인사 시스템 연동, 조직 단위 관리자, 정기 접근 권한 점검처럼 국내 기업 조직에 필요한 기능을 기본으로 갖췄습니다.

@@ -1,5 +1,9 @@
 # DIDRAKON IAM
 
+[![CI](https://github.com/dublesy/didrakon-iam/actions/workflows/ci.yml/badge.svg)](https://github.com/dublesy/didrakon-iam/actions/workflows/ci.yml)
+
+> **Status: early release.** The feature set is in place and has passed automated tests and source-code security reviews, but it has not yet been proven in a production deployment. Validate it in your own environment before relying on it. Report bugs as issues and vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
 An identity and access management platform: single sign-on (OIDC), authorization (RBAC + ABAC + ReBAC), access governance, risk scoring and audit.
 
 The name comes from Greek *di* (two) + *drakōn* (dragon): two dragons, authentication and authorization, guarding the gate.
