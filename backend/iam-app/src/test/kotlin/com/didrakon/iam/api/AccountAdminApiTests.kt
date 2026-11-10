@@ -14,10 +14,12 @@ import com.didrakon.iam.authz.assignment.RoleAssignmentService
 import com.didrakon.iam.authz.role.AuthzCatalogService
 import com.didrakon.iam.authz.role.RoleRepository
 import com.didrakon.iam.authz.scope.ScopeType
+import com.didrakon.iam.common.error.BusinessRuleException
 import com.didrakon.iam.config.IamBootstrap
 import com.didrakon.iam.identity.organization.OrgType
 import com.jayway.jsonpath.JsonPath
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.MediaType
 import org.springframework.jdbc.core.JdbcTemplate
@@ -126,6 +128,30 @@ class AccountAdminApiTests @Autowired constructor(
         assertTrue(mfaService.hasVerifiedMethod(w.userOut))
         assertTrue(mfaService.hasVerifiedMethod(w.peer))
         assertEquals(1, auditCount("USER", w.userIn, "MFA_RESET"))
+    }
+
+    @Test
+    fun `관리자가 2단계 인증을 초기화하면 그 사람의 로그인 세션도 끝난다`() {
+        val w = World()
+        openSessions(w.userIn, 2)
+        val method = totp(w.userIn)
+        assertEquals(2, sessionService.activeSessions(w.userIn).size)
+
+        mockMvc.perform(delete("/api/v1/subjects/${w.userIn}/mfa/$method").with(user(w.orgAdmin))).andExpect(status().isOk)
+
+        assertTrue(sessionService.activeSessions(w.userIn).isEmpty(), "잃어버린 수단으로 연 세션을 남기지 않는다")
+    }
+
+    @Test
+    fun `로그인 ID 는 앞뒤 공백을 지우고 중간 공백·제어 문자는 받지 않으며, 한 사람에게 로그인 계정은 하나다`() {
+        val subject = fixture.user()
+        assertThrows<BusinessRuleException> { accountService.createAccount(subject, "kim sy", password) }
+        assertThrows<BusinessRuleException> { accountService.createAccount(subject, "kim\u0007sy", password) }
+
+        val loginId = "kim${System.nanoTime()}"
+        accountService.createAccount(subject, "  $loginId ", password)
+        assertEquals(subject, accountService.findIdentity(loginId)?.subjectId)
+        assertThrows<BusinessRuleException> { accountService.createAccount(subject, "other${System.nanoTime()}", password) }
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.didrakon.iam.authn.client
 
 import org.springframework.data.repository.findByIdOrNull
+import com.didrakon.iam.authn.token.TokenRevoker
 import com.didrakon.iam.common.error.NotFoundException
 import org.springframework.context.ApplicationEventPublisher
 import com.didrakon.iam.common.event.AdminChangeEvent
@@ -64,6 +65,7 @@ class SsoClientService(
     private val registeredClientRepository: RegisteredClientRepository,
     private val ssoClientRepository: SsoClientRepository,
     private val passwordEncoder: PasswordEncoder,
+    private val tokenRevoker: TokenRevoker,
     private val eventPublisher: ApplicationEventPublisher,
 ) {
     @Transactional(readOnly = true)
@@ -123,13 +125,17 @@ class SsoClientService(
         return secret
     }
 
-    /** 끄면 그 클라이언트로는 로그인·토큰 발급이 막힌다 ([ActiveClientRepository]). 관리 콘솔 자신은 끌 수 없다 */
+    /**
+     * 끄면 그 클라이언트로는 로그인·토큰 발급이 막히고([ActiveClientRepository]), 이미 발급한 토큰도 회수한다
+     * (refresh·토큰 검사·userinfo 가 더는 통하지 않게). 관리 콘솔 자신은 끌 수 없다
+     */
     fun changeActive(ssoClientId: Long, active: Boolean, protectedClientCode: String): SsoClient {
         val client = find(ssoClientId)
         if (client.isActive == active) return client
         if (!active && client.clientCode == protectedClientCode) throw BusinessRuleException("관리 콘솔 클라이언트는 끌 수 없습니다")
         val before = snapshot(client)
         client.changeActive(active)
+        if (!active) tokenRevoker.revokeByClient(client.registeredClientId)
         eventPublisher.publishEvent(AdminChangeEvent("CLIENT", ssoClientId, if (active) "ACTIVATE" else "DEACTIVATE", before, snapshot(client)))
         return client
     }
@@ -151,8 +157,8 @@ class SsoClientService(
     /** 바뀐 것이 있으면 고친 등록 정보, 없으면 null */
     private fun changedRegistration(client: SsoClient, registered: RegisteredClient, change: ClientLoginChange): RegisteredClient? {
         val userFacing = client.clientType.userFacing()
-        val redirectUris = change.redirectUris?.let { validRedirectUris(it, "redirect URI") } ?: registered.redirectUris
-        val postLogout = change.postLogoutRedirectUris?.let { validRedirectUris(it, "로그아웃 후 주소") } ?: registered.postLogoutRedirectUris
+        val redirectUris = change.redirectUris?.let { validRedirectUris(it, "redirect URI", client.clientType) } ?: registered.redirectUris
+        val postLogout = change.postLogoutRedirectUris?.let { validRedirectUris(it, "로그아웃 후 주소", client.clientType) } ?: registered.postLogoutRedirectUris
         val scopes = change.scopes?.let { validScopes(it, userFacing) } ?: registered.scopes
         if (redirectUris == registered.redirectUris && postLogout == registered.postLogoutRedirectUris && scopes == registered.scopes) return null
         if (userFacing && redirectUris.isEmpty()) throw BusinessRuleException("사용자 로그인 클라이언트는 redirect URI 가 필요합니다")
@@ -168,12 +174,19 @@ class SsoClientService(
 
     private fun ClientType.userFacing() = this == ClientType.WEB || this == ClientType.MOBILE
 
-    /** 빈 줄은 버린다. 스킴이 있는 절대 주소만 받는다 (모바일 앱의 사용자 정의 스킴 허용). fragment(#) 는 OAuth2 가 금지한다 */
-    private fun validRedirectUris(uris: Set<String>, label: String): Set<String> =
+    /**
+     * 빈 줄은 버린다. 스킴이 있는 절대 주소만 받는다. fragment(#) 는 OAuth2 가 금지한다.
+     * 웹 클라이언트는 http(s) 만, 모바일 앱은 사용자 정의 스킴도 받는다. 브라우저에서 스크립트·내용으로 해석되는 스킴(javascript: 등)은 막는다
+     */
+    private fun validRedirectUris(uris: Set<String>, label: String, clientType: ClientType): Set<String> =
         uris.map(String::trim).filter(String::isNotEmpty).onEach { value ->
             val parsed = runCatching { java.net.URI(value) }.getOrNull()
             if (parsed == null || !parsed.isAbsolute || parsed.fragment != null || (parsed.isOpaque && parsed.schemeSpecificPart.isNullOrBlank())) {
                 throw BusinessRuleException("$label 는 절대 주소여야 하고 # 을 쓸 수 없습니다: $value")
+            }
+            val scheme = parsed.scheme.lowercase()
+            if (scheme in BLOCKED_SCHEMES || (clientType == ClientType.WEB && scheme !in WEB_SCHEMES)) {
+                throw BusinessRuleException("$label 에 쓸 수 없는 스킴입니다 (웹은 http·https 만): $value")
             }
         }.toSet()
 
@@ -182,6 +195,10 @@ class SsoClientService(
         val values = scopes.map(String::trim).filter(String::isNotEmpty).onEach { scope ->
             if (!scope.all { it.code in 0x21..0x7E && it != '"' && it != '\\' }) throw BusinessRuleException("scope 에 쓸 수 없는 문자가 있습니다: $scope")
         }.toSet()
+        // iam. 으로 시작하는 scope 는 IAM 의 시스템 API(권한 판정·HR 연동)를 연다. 사용자 토큰에 들어가면 그 사람 대신 쓸 수 있으므로 시스템 클라이언트에만 준다
+        if (userFacing) values.firstOrNull { it.startsWith(RESERVED_SCOPE_PREFIX) }?.let {
+            throw BusinessRuleException("사용자 로그인 클라이언트에는 시스템 전용 scope 를 줄 수 없습니다: $it")
+        }
         return if (userFacing) values + setOf(OidcScopes.OPENID, OidcScopes.PROFILE) else values
     }
 
@@ -217,8 +234,8 @@ class SsoClientService(
         // client credentials 토큰의 sub 는 클라이언트 코드다. 숫자뿐이면 같은 번호의 사용자(subject ID)와 헷갈린다
         if (request.clientCode.all(Char::isDigit)) throw BusinessRuleException("클라이언트 코드는 숫자만으로 만들 수 없습니다: ${request.clientCode}")
         val userFacing = request.clientType.userFacing()
-        val redirectUris = if (userFacing) validRedirectUris(request.redirectUris, "redirect URI") else emptySet()
-        val postLogoutRedirectUris = if (userFacing) validRedirectUris(request.postLogoutRedirectUris, "로그아웃 후 주소") else emptySet()
+        val redirectUris = if (userFacing) validRedirectUris(request.redirectUris, "redirect URI", request.clientType) else emptySet()
+        val postLogoutRedirectUris = if (userFacing) validRedirectUris(request.postLogoutRedirectUris, "로그아웃 후 주소", request.clientType) else emptySet()
         val scopes = validScopes(request.scopes, userFacing)
         if (userFacing && redirectUris.isEmpty()) throw BusinessRuleException("사용자 로그인 클라이언트는 redirect URI 가 필요합니다")
         if (!userFacing && !request.confidential) throw BusinessRuleException("시스템 간 호출 클라이언트는 비밀값이 필요합니다")
@@ -273,3 +290,8 @@ class SsoClientService(
         return RegisteredClientResult(ssoClient, registered.clientId, secret)
     }
 }
+
+/** 브라우저에서 스크립트·내용으로 해석되거나 다른 앱을 여는 스킴. redirect 주소로 받지 않는다 */
+private val BLOCKED_SCHEMES = setOf("javascript", "data", "vbscript", "file", "about", "blob", "filesystem")
+private val WEB_SCHEMES = setOf("http", "https")
+private const val RESERVED_SCOPE_PREFIX = "iam."

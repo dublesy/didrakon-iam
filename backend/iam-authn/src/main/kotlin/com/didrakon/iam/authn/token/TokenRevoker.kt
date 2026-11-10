@@ -44,6 +44,15 @@ class TokenRevoker(
         return removed
     }
 
+    /** 이 클라이언트에 발급한 토큰을 모두 회수한다 (클라이언트를 끌 때). 회수한 인가 수 */
+    fun revokeByClient(registeredClientId: String): Int {
+        jdbcTemplate.update(
+            "DELETE FROM login_session_authorization WHERE authorization_id IN (SELECT id FROM oauth2_authorization WHERE registered_client_id = ?)",
+            registeredClientId,
+        )
+        return jdbcTemplate.update("DELETE FROM oauth2_authorization WHERE registered_client_id = ?", registeredClientId)
+    }
+
     /** 이 사용자에게 발급한 토큰을 모두 회수한다 (세션 연결이 없는 것까지). 회수한 인가 수 */
     fun revokeBySubject(subjectId: Long): Int {
         val targets = logoutNotifier.targetsBySubject(subjectId)

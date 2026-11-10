@@ -287,6 +287,31 @@ class OAuth2FlowTests @Autowired constructor(
     }
 
     @Test
+    fun `토큰 검사는 그 토큰을 받은 클라이언트만 할 수 있다`() {
+        val client = webClient()
+        val other = webClient()
+        val (_, session) = loggedInUser()
+        val access = exchangeCode(client, authorize(client, session))["access_token"].stringValue()
+
+        assertTrue(introspect(client, access)["active"].booleanValue())
+        assertFalse(introspect(other, access)["active"].booleanValue(), "다른 클라이언트의 토큰은 비활성으로 답한다")
+    }
+
+    @Test
+    fun `클라이언트를 끄면 그 클라이언트에 발급한 토큰을 회수한다`() {
+        val client = webClient()
+        val (_, session) = loggedInUser()
+        exchangeCode(client, authorize(client, session))
+        val registeredClientId = client.ssoClient.registeredClientId
+        val count = { jdbc.queryForObject("SELECT COUNT(*) FROM oauth2_authorization WHERE registered_client_id = ?", Int::class.java, registeredClientId) }
+        assertEquals(1, count())
+
+        clientService.changeActive(client.ssoClient.requireId(), false, "iam-admin")
+
+        assertEquals(0, count())
+    }
+
+    @Test
     fun `client credentials 로 받은 토큰도 hash 로만 저장된다`() {
         val client = clientService.register(ClientRegistration("batch-${System.nanoTime()}", "배치", ClientType.BATCH))
 

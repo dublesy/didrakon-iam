@@ -13,8 +13,10 @@ import jakarta.persistence.Enumerated
 import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
+import jakarta.persistence.LockModeType
 import jakarta.persistence.Table
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.query.Param
 import java.time.Instant
@@ -194,6 +196,13 @@ class Approval(
 enum class ApprovalStatus { PENDING, APPROVED, REJECTED, SKIPPED }
 
 interface AccessRequestRepository : JpaRepository<AccessRequest, Long> {
+    /** 승인·반려·취소가 동시에 들어와도 한 번에 하나만 처리하도록 요청 행을 잠근다 */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from AccessRequest r where r.id = :id")
+    fun findByIdForUpdate(@Param("id") id: Long): AccessRequest?
+
+    fun findBySubjectIdAndStatus(subjectId: Long, status: AccessRequestStatus): List<AccessRequest>
+
     fun findBySubjectIdAndRoleIdAndStatus(subjectId: Long, roleId: Long, status: AccessRequestStatus): List<AccessRequest>
 
     fun findByStatusOrderByCreatedAtAsc(status: AccessRequestStatus): List<AccessRequest>

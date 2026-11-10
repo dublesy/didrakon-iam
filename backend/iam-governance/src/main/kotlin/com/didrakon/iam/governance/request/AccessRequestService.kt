@@ -14,17 +14,27 @@ import com.didrakon.iam.governance.sod.SodGuard
 import com.didrakon.iam.identity.group.GroupMemberId
 import com.didrakon.iam.identity.group.GroupMemberRepository
 import com.didrakon.iam.identity.group.UserGroupRepository
+import com.didrakon.iam.identity.event.SubjectStatusChangedEvent
 import com.didrakon.iam.identity.organization.SubjectOrganizationRepository
+import com.didrakon.iam.identity.subject.SubjectRepository
+import com.didrakon.iam.identity.subject.SubjectStatus
 import com.didrakon.iam.risk.RiskContext
 import com.didrakon.iam.risk.RiskEngine
 import com.didrakon.iam.risk.RiskType
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.ApplicationEventPublisher
+import org.springframework.context.event.EventListener
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
+
+/** 역할에 관리 콘솔 권한이 있는지 (iam-app 이 구현한다). 이런 역할의 요청은 승인자를 더 요구한다 */
+fun interface ConsoleRoles {
+    fun isConsoleRole(roleId: Long): Boolean
+}
 
 /**
  * JIT 접근 요청과 승인. 승인 조건([ApprovalPolicy])을 채우면 요청 기간 동안만 유효한 ROLE_ASSIGNMENT(source_type=JIT)를 만든다.
@@ -44,8 +54,12 @@ class AccessRequestService(
     private val assignmentService: RoleAssignmentService,
     private val sodGuard: SodGuard,
     private val riskEngine: RiskEngine,
+    private val subjectRepository: SubjectRepository,
+    private val consoleRoles: ConsoleRoles,
     private val eventPublisher: ApplicationEventPublisher,
     private val clock: Clock,
+    /** 관리 콘솔 권한이 있는 역할의 요청에 필요한 서로 다른 승인자 수. 관리자가 한 명뿐이면 1 로 둔다 */
+    @param:Value("\${iam.governance.console-role-approvals:2}") private val consoleRoleApprovals: Int,
 ) {
     fun requestJit(
         subjectId: Long,
@@ -76,6 +90,10 @@ class AccessRequestService(
     /** 승인 조건을 모두 채우면 APPROVED 가 되고, JIT 는 바로 역할이 부여된다 */
     fun approve(requestId: Long, approverId: Long, comment: String? = null): AccessRequest {
         val request = pending(requestId)
+        // 사용 중지·잠김·퇴사한 사람의 남은 요청으로 역할이 생기지 않게 한다
+        if (subjectRepository.findByIdOrNull(request.subjectId)?.status != SubjectStatus.ACTIVE) {
+            throw BusinessRuleException("사용 중인 사람의 요청만 승인할 수 있습니다")
+        }
         val decisions = approvalRepository.findByRequestIdOrderByApprovalStepAsc(requestId)
         if (approverId == request.subjectId) throw BusinessRuleException("본인 요청은 승인할 수 없습니다")
         if (decisions.any { it.approverId == approverId }) throw BusinessRuleException("이미 결정한 요청입니다")
@@ -114,6 +132,16 @@ class AccessRequestService(
         request.moveTo(AccessRequestStatus.CANCELLED, clock.instant())
         publish(request, subjectId, null)
         return request
+    }
+
+    /** 퇴사하면 처리 중인 요청(JIT·비상 접근)을 취소한다. 사용 중지·잠김은 되돌릴 수 있어 남기고, 승인 때 상태로 막는다 */
+    @EventListener
+    fun onStatusChanged(event: SubjectStatusChangedEvent) {
+        if (event.status != SubjectStatus.RETIRED) return
+        requestRepository.findBySubjectIdAndStatus(event.subjectId, AccessRequestStatus.PENDING).forEach {
+            it.moveTo(AccessRequestStatus.CANCELLED, clock.instant())
+            publish(it, null, "퇴사")
+        }
     }
 
     /** 기간이 끝나도록 처리되지 않은 요청을 EXPIRED 로 바꾼다 */
@@ -168,7 +196,11 @@ class AccessRequestService(
 
     private fun satisfied(request: AccessRequest, policy: ApprovalPolicy?, approvers: List<Long>): Boolean {
         val distinct = approvers.toSet()
-        if (distinct.size < (policy?.requiredApprovalCount ?: DEFAULT_APPROVAL_COUNT)) return false
+        val required = maxOf(
+            policy?.requiredApprovalCount ?: DEFAULT_APPROVAL_COUNT,
+            if (consoleRoles.isConsoleRole(request.roleId)) consoleRoleApprovals else DEFAULT_APPROVAL_COUNT,
+        )
+        if (distinct.size < required) return false
         if (policy?.requireSecurityTeam == true && distinct.none(::isSecurityTeam)) return false
         if (policy?.requireOwner == true && distinct.none { isManagerOf(it, request.subjectId) }) return false
         return true
@@ -204,7 +236,7 @@ class AccessRequestService(
     }
 
     private fun pending(requestId: Long): AccessRequest {
-        val request = requestRepository.findByIdOrNull(requestId) ?: throw NotFoundException("접근 요청", requestId)
+        val request = requestRepository.findByIdForUpdate(requestId) ?: throw NotFoundException("접근 요청", requestId)
         if (request.status != AccessRequestStatus.PENDING) throw BusinessRuleException("처리가 끝난 요청입니다: $requestId (${request.status})")
         return request
     }

@@ -57,7 +57,7 @@ class AccountAdminApi(
         SubjectMfaResponse(mfaService.verifiedMethods(subjectId).map(MfaMethodResponse::from), passkeyService.list(subjectId)),
     )
 
-    /** 인증 앱 초기화 (기기 분실). 로그인 세션은 끊지 않는다. 필요하면 "모든 세션 끊기"를 따로 한다 */
+    /** 인증 앱 초기화 (기기 분실). 그 사람의 로그인 세션과 발급한 토큰도 함께 끝낸다 */
     @DeleteMapping("/mfa/{methodId}")
     @RequiresPermission(ApiResources.USER, PermissionAction.UPDATE, orgOf = OrgTarget.SUBJECT)
     fun removeMfa(@PathVariable subjectId: Long, @PathVariable methodId: Long): ApiResponse<Unit> {

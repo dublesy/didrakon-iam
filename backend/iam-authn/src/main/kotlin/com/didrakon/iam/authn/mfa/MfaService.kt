@@ -100,6 +100,9 @@ interface MfaMethodRepository : JpaRepository<MfaMethod, Long> {
 /** 등록 결과. 비밀값은 인증 앱 등록에만 쓰고 다시 보여주지 않는다 */
 data class TotpEnrollment(val methodId: Long, val secretBase32: String, val otpauthUri: String)
 
+/** 관리자가 2단계 인증 수단(인증 앱·패스키)을 초기화했다. 그 사람의 세션·토큰을 회수한다 ([com.didrakon.iam.authn.session.SubjectAccessRevoker]) */
+data class SecondFactorResetEvent(val subjectId: Long)
+
 @Service
 @Transactional
 class MfaService(
@@ -154,8 +157,8 @@ class MfaService(
     }
 
     /**
-     * 관리자 초기화 (기기 분실 등). 지운 수단을 감사 기록으로 남긴다. 로그인 세션은 그대로 둔다:
-     * 이미 로그인한 세션은 그 수단이 아니어도 유효하고, 끊을지는 관리자가 따로 정한다
+     * 관리자 초기화 (기기 분실 등). 지운 수단을 감사 기록으로 남기고, 그 사람의 로그인 세션·토큰도 끝낸다:
+     * 수단을 잃어버렸다면 그 수단으로 연 세션을 다른 사람이 쓰고 있을 수 있다
      */
     fun removeByAdmin(subjectId: Long, methodId: Long) {
         val method = methodRepository.findByIdOrNull(methodId)?.takeIf { it.subjectId == subjectId }
@@ -163,6 +166,7 @@ class MfaService(
         val removed = mapOf("methodId" to methodId, "methodType" to method.methodType.name, "registeredAt" to method.registeredAt)
         delete(method)
         eventPublisher.publishEvent(AdminChangeEvent("USER", subjectId, "MFA_RESET", removed, null))
+        eventPublisher.publishEvent(SecondFactorResetEvent(subjectId))
     }
 
     private fun delete(method: MfaMethod) {

@@ -3,6 +3,7 @@ package com.didrakon.iam.authn.passkey
 import com.didrakon.iam.authn.config.AuthnProperties
 import com.didrakon.iam.authn.credential.LocalAccountService
 import com.didrakon.iam.authn.event.PasskeyChangedEvent
+import com.didrakon.iam.authn.mfa.SecondFactorResetEvent
 import com.didrakon.iam.common.error.NotFoundException
 import com.didrakon.iam.common.event.AdminChangeEvent
 import com.didrakon.iam.identity.subject.SubjectRepository
@@ -190,7 +191,7 @@ class PasskeyService(
         userCredentials.delete(record.credentialId)
     }
 
-    /** 관리자 초기화 (기기 분실 등). 패스키 삭제 기록에 더해 관리자가 지웠다는 감사 기록을 남긴다 */
+    /** 관리자 초기화 (기기 분실 등). 패스키 삭제 기록에 더해 관리자가 지웠다는 감사 기록을 남기고, 그 사람의 세션·토큰을 끝낸다 */
     @Transactional
     fun removeByAdmin(subjectId: Long, credentialId: String) {
         val label = list(subjectId).firstOrNull { it.credentialId == credentialId }?.label
@@ -198,5 +199,6 @@ class PasskeyService(
         eventPublisher.publishEvent(
             AdminChangeEvent("USER", subjectId, "PASSKEY_RESET", mapOf("credentialId" to credentialId, "label" to label), null),
         )
+        eventPublisher.publishEvent(SecondFactorResetEvent(subjectId))
     }
 }

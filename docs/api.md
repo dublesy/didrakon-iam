@@ -93,6 +93,9 @@
 **SSO 클라이언트** `/clients`
 
 - 목록·등록. 리다이렉트·로그아웃 뒤 주소·scope·기밀 여부 포함
+  - 웹 클라이언트의 주소는 http·https 만, 모바일 앱은 사용자 정의 스킴도 받는다. `javascript:`·`data:` 같은 스킴은 받지 않는다
+  - `iam.` 으로 시작하는 scope(`iam.authz.check`·`iam.hr.sync`)는 시스템 클라이언트(API·BATCH)에만 준다
+  - 끄면 그 클라이언트에 발급한 토큰을 모두 회수한다
 - `PUT /clients/{id}` — 주소·scope·back-channel 로그아웃 주소·Supabase 호환(`supabaseRoleClaim`) 변경. client_id 는 그대로, `iam-admin` 의 로그인 설정은 못 바꾼다
 - `POST /clients/{id}/rotate-secret` — 비밀값 재발급 (응답에서 한 번만 보인다)
 

@@ -32,8 +32,14 @@ class LocalAccountService(
     private val eventPublisher: ApplicationEventPublisher,
     private val clock: Clock,
 ) {
-    fun createAccount(subjectId: Long, loginId: String, rawPassword: String): Identity {
+    /** 로그인 ID 는 앞뒤 공백을 지우고, 중간 공백·제어 문자가 있으면 거부한다 (감사 기록·화면에 그대로 남고, 보이지 않는 글자로 비슷한 ID 를 만들지 못하게) */
+    fun createAccount(subjectId: Long, rawLoginId: String, rawPassword: String): Identity {
+        val loginId = rawLoginId.trim()
+        if (loginId.isEmpty() || loginId.any { it.isWhitespace() || it.isISOControl() }) {
+            throw BusinessRuleException("로그인 ID 에는 공백이나 제어 문자를 쓸 수 없습니다")
+        }
         if (!subjectRepository.existsById(subjectId)) throw NotFoundException("subject", subjectId)
+        if (findLocalIdentity(subjectId) != null) throw BusinessRuleException("이미 로그인 계정이 있습니다")
         val providerId = localProviderId()
         if (identityRepository.findByProviderIdAndExternalId(providerId, loginId) != null) {
             throw BusinessRuleException("이미 사용 중인 로그인 ID 입니다: $loginId")
@@ -53,10 +59,9 @@ class LocalAccountService(
      * 관리자가 정한 첫 비밀번호는 다음 로그인에서 본인이 바꿔야 한다 (관리자가 계속 알지 않도록)
      */
     fun createAccountByAdmin(subjectId: Long, loginId: String, rawPassword: String): Identity {
-        if (findLocalIdentity(subjectId) != null) throw BusinessRuleException("이미 로그인 계정이 있습니다")
         val identity = createAccount(subjectId, loginId, rawPassword)
         credentialRepository.findByIdOrNull(identity.requireId())?.requirePasswordChange()
-        eventPublisher.publishEvent(AdminChangeEvent("USER", subjectId, "CREATE_LOGIN_ACCOUNT", null, mapOf("loginId" to loginId)))
+        eventPublisher.publishEvent(AdminChangeEvent("USER", subjectId, "CREATE_LOGIN_ACCOUNT", null, mapOf("loginId" to identity.loginId)))
         return identity
     }
 

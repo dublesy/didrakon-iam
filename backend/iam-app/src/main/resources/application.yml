@@ -41,6 +41,11 @@ iam:
     # JWT 서명 키(PEM). 비어 있으면 기동할 때 만들어 재기동 시 기존 토큰이 무효가 된다
     jwt-private-key: ${IAM_JWT_PRIVATE_KEY:}
     jwt-public-key: ${IAM_JWT_PUBLIC_KEY:}
+    # 세션 쿠키에 Secure 를 늘 붙인다. false 면 요청이 HTTPS 로 보일 때만 붙는다 (운영 프로필은 true)
+    secure-session-cookie: false
+  governance:
+    # 관리 콘솔 권한이 있는 역할의 JIT·비상 접근 요청에 필요한 서로 다른 승인자 수. 관리자가 한 명뿐이면 1
+    console-role-approvals: ${IAM_CONSOLE_ROLE_APPROVALS:2}
   bootstrap:
     admin-console-redirect-uris: ${IAM_ADMIN_CONSOLE_REDIRECT_URIS:http://localhost:3000/callback}
     admin-console-post-logout-redirect-uris: ${IAM_ADMIN_CONSOLE_POST_LOGOUT_URIS:http://localhost:3000/}

@@ -934,13 +934,14 @@ erDiagram
 | `SERVICE_ACCOUNT` | `description` 제거 | `SUBJECT.description`과 중복. JOINED 상속에서 상위 컬럼을 쓴다 |
 | `POLICY_EXCEPTION` | 대상(subject, 리소스) 중 하나 이상 필수 (CHECK) | 대상 없는 예외는 정책 전체를 무력화함 |
 | `AUTHENTICATION_EVENT`, `AUTHORIZATION_LOG`, `AUDIT_EVENT` | PK에 시간 컬럼 포함 (`(id, created_at)` 등) | MySQL 파티션 테이블은 파티션 키가 모든 UNIQUE 키에 포함되어야 함. 나중에 월 단위 파티셔닝을 PK 변경 없이 적용 |
+| `IDENTITY` | `uk_identity_subject_provider(subject_id, provider_id)` 추가, `external_id` collation 을 `utf8mb4_0900_ai_ci` 로 고정 (V24) | 한 사람에게 IdP 마다 계정 하나. 로그인 ID 비교(대소문자·악센트 무시)를 DB 서버 기본 설정에 맡기지 않는다. 로그인 ID 는 앞뒤 공백을 지우고 중간 공백·제어 문자를 받지 않는다 |
 | `API_KEY` | `revoked_at`, `revoked_by` 추가 (V23) | 언제 누가 폐기했는지 남긴다. 사용 중지·퇴사 일괄 폐기는 `revoked_by` NULL, V23 이전에 폐기된 키는 둘 다 NULL |
 | `ACCESS_REQUEST` | `closed_at` 추가 (V23) | 처리가 끝난(승인·반려·취소·만료) 시각. V23 이전에 끝난 요청은 NULL |
 | `BREAK_GLASS_POLICY` | `eligible_group_id` 추가 (V23) | 비상 접근을 시작·요청할 수 있는 그룹을 정책마다 제한. NULL 이면 사용 중인 사람 누구나 |
 
 ### 스키마 작성 규칙
 
-ERD에 길이·NULL 여부가 없는 컬럼은 아래 규칙으로 정했다. 마이그레이션: `backend/iam-app/src/main/resources/db/migration` (도메인별 `V1__identity` ~ `V6__audit`, 이후 변경은 `V7` ~ `V23`)
+ERD에 길이·NULL 여부가 없는 컬럼은 아래 규칙으로 정했다. 마이그레이션: `backend/iam-app/src/main/resources/db/migration` (도메인별 `V1__identity` ~ `V6__audit`, 이후 변경은 `V7` ~ `V24`)
 
 | 대상 | 규칙 |
 |---|---|
@@ -1100,9 +1101,9 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 | 서명 키 | JWT 서명 RSA 키는 `IAM_JWT_PRIVATE_KEY`·`IAM_JWT_PUBLIC_KEY`. 없으면 기동마다 새 키라 재기동 시 기존 토큰이 무효가 된다. `prod` 는 키 없이 기동하지 않는다 (`iam.authn.require-persistent-jwt-key`) |
 | 비밀값 | `MFA_METHOD.secret_reference` 에는 참조만. 실제 값은 `SecretStore` 가 보관하며, 지금 구현은 앱 키(`IAM_SECRET_KEY`)로 AES-GCM 암호화해 `secret_value` 테이블(V7, ERD 외 테이블)에 둔다 |
 | 토큰 | SAS 토큰·code 는 SHA-256 hash 로만 저장(결정 사항 3). refresh token 은 매번 회전, 이전 값은 거부 |
-| 토큰 회수 | 인가 기록은 저장될 때 그 브라우저의 로그인 세션과 연결된다(`login_session_authorization`, V10). 로그아웃·관리자 세션 종료 → 그 세션에서 나온 인가 삭제(refresh 불가). 사용 안 함·잠김·퇴사 → 모든 세션 종료, 모든 인가 삭제, API 키 폐기. 접근 토큰(JWT, 10분)은 만료까지 남지만 PDP 가 비활성 주체를 거부하고, 본인 API(`@SelfService`)도 상태가 ACTIVE 인 주체만 받는다(`SUBJECT_INACTIVE`) |
+| 토큰 회수 | 인가 기록은 저장될 때 그 브라우저의 로그인 세션과 연결된다(`login_session_authorization`, V10). 로그아웃·관리자 세션 종료 → 그 세션에서 나온 인가 삭제(refresh 불가). 사용 안 함·잠김·퇴사 → 모든 세션 종료, 모든 인가 삭제, API 키 폐기. 관리자의 2단계 인증(인증 앱·패스키) 초기화 → 모든 세션 종료, 모든 인가 삭제(`SecondFactorResetEvent`). SSO 클라이언트를 끄면 그 클라이언트의 인가를 모두 삭제한다. 토큰 검사(introspection)는 그 토큰을 받은 클라이언트만 할 수 있고, 다른 클라이언트의 토큰은 비활성으로 답한다. 접근 토큰(JWT, 10분)은 만료까지 남지만 PDP 가 비활성 주체를 거부하고, 본인 API(`@SelfService`)도 상태가 ACTIVE 인 주체만 받는다(`SUBJECT_INACTIVE`) |
 | 토큰 claim | 사용자 토큰(접근·ID)에 `name`, `user_kind`(EMPLOYEE·EXTERNAL), `emp_no`(임직원만), `primary_org_id`, `company_org_id`(문자열), `roles`(유효한 역할 코드). client credentials 토큰에는 넣지 않는다. 토큰 수명 동안은 바뀐 값이 반영되지 않으므로 거친 판단(메뉴 노출)에만 쓰고 세밀한 판단은 `/api/v1/authz/check` |
-| 퇴사 | `POST /api/v1/users/{id}/retire`: 소속 종료·그룹 제외(→ 조직·그룹 할당 회수), 남은 할당 전부 회수, `status = RETIRED`, `employment_status = RETIRED`, 퇴사일 기록. 되돌릴 수 없다. 퇴사일이 오늘 이후면 `USER.retire_date` 에 예약만 하고(상태는 그대로), 만료 스케줄러가 그날 처리한다. 예약은 `DELETE` 로 취소 |
+| 퇴사 | `POST /api/v1/users/{id}/retire`: 소속 종료·그룹 제외(→ 조직·그룹 할당 회수), 남은 할당 전부 회수(앞으로 시작할 승인된 JIT·시작 전 위임 포함), 처리 중인 권한 요청 취소, `status = RETIRED`, `employment_status = RETIRED`, 퇴사일 기록. 되돌릴 수 없다. 퇴사일이 오늘 이후면 `USER.retire_date` 에 예약만 하고(상태는 그대로), 만료 스케줄러가 그날 처리한다. 예약은 `DELETE` 로 취소 |
 | IAM 홈 | 로그인 서버의 `/`(내 계정). 내 앱은 `SSO_CLIENT.home_url`(V21)을 둔 켜진 WEB·MOBILE 클라이언트 바로가기다 (접근 권한은 각 시스템이 판단). 로그인된 기기는 본인의 유효한 `LOGIN_SESSION`, 최근 로그인 기록은 본인의 `AUTHENTICATION_EVENT` 10건. `다른 기기에서 모두 로그아웃`은 지금 브라우저의 로그인 세션만 남기고 나머지를 끝낸다 (토큰 회수·back-channel 로그아웃 포함, 감사 LOGOUT). 콘솔 링크는 `iam.authn.console-url`(`IAM_CONSOLE_URL`) |
 | Supabase 호환 | `SSO_CLIENT.supabase_role_claim`(V20)을 켠 클라이언트에 발급하는 접근·ID 토큰에 `role: "authenticated"` 를 넣는다. Supabase Third-Party Auth(Custom OIDC)가 이 값이 있어야 로그인한 사용자로 보기 때문이다. 끈 클라이언트에는 넣지 않는다 |
 | 계정 연결 조회 | `POST /api/v1/users/lookup` 은 연동 시스템이 기존 계정을 잇는 일회성 작업용으로 사번·이메일 목록(합쳐 1000건)을 받아 맞는 사용자를 돌려준다. 사번은 하나, 이메일은 대소문자를 무시하고 여러 명(임직원·외부 사용자)일 수 있다. 개인정보가 URL 에 남지 않도록 POST 본문으로 받고, 사용자 조회 전체 범위 권한만 쓸 수 있다 |
@@ -1165,7 +1166,7 @@ IAM 자신의 관리 API 판정: `@RequiresPermission(orgOf = …)` 로 경로�
 | 항목 | 규칙 |
 |---|---|
 | 직무 분리 | 모든 부여 경로(직접·조직·그룹·JIT·위임)에서 충돌 역할을 이미 가진 subject 에게 부여하면 거부하고, 그 부여를 일으킨 변경(예: 소속 추가)까지 롤백한다. 지금 가진 역할뿐 아니라 곧 받을 역할(시작 전인 위임·JIT)도 기간이 겹치면 센다 — 두 역할을 미래 시작으로 따로 받아 함께 갖지 못하게. 유효한 `ROLE_CONFLICT_EXCEPTION` 이 부여 기간 전체를 덮을 때만 허용한다(기한 있는 예외면 그 안에 끝나는 할당만). 예외를 일찍 끝내면 예외가 시작된 뒤 직접 받은 충돌 역할 중 가장 나중 것을 회수한다. **비상 접근은 검사하지 않고** 감사 기록으로 남긴다. 충돌 정의 이전에 이미 두 역할을 가진 subject 는 그대로 둔다 |
-| JIT | 사유 필수, 기간 최대 30일, 같은 역할 대기 요청 1건. 요청 시점에 직무 분리 위반을 먼저 거부. 승인되면 `ROLE_ASSIGNMENT(source_type=JIT, source_id=request_id)` 를 요청 기간으로 만든다. 요청이 끝나면(승인·반려·취소·만료) `ACCESS_REQUEST.closed_at`(V23)에 시각을 남긴다 |
+| JIT | 사유 필수, 기간 최대 30일, 같은 역할 대기 요청 1건. 요청 시점에 직무 분리 위반을 먼저 거부. 승인되면 `ROLE_ASSIGNMENT(source_type=JIT, source_id=request_id)` 를 요청 기간으로 만든다. 요청이 끝나면(승인·반려·취소·만료) `ACCESS_REQUEST.closed_at`(V23)에 시각을 남긴다. 관리 콘솔 권한이 있는 역할의 JIT·비상 접근 요청은 서로 다른 승인자가 `iam.governance.console-role-approvals`(기본 2)명 이상이어야 한다. 승인·반려·취소는 요청 행을 잠가(`SELECT … FOR UPDATE`) 하나씩 처리하고, 요청한 사람이 사용 중일 때만 승인한다. 퇴사하면 처리 중인 요청을 취소한다 |
 | 승인 조건 | `APPROVAL_POLICY` 중 역할의 role_type 이 같은 것 → role_type 이 빈 기본 정책 → 없으면 1명. 서로 다른 승인자 수, `require_security_team` = `SECURITY_TEAM` 그룹 구성원 1명 이상, `require_owner` = **요청자 PRIMARY 소속 조직의 관리자(is_manager)** 1명 이상. 본인 승인 불가. `resource_sensitivity` 는 아직 쓰지 않음 |
 | 위임 | 위임자가 직접 가진(위임받지 않은) 같은 역할·scope 만. 재위임 불가. 위임 기간으로 `ROLE_ASSIGNMENT(DELEGATION)` 생성. 위임자가 그 역할을 잃으면(회수·만료) 위임도 자동 종료. 로그인한 본인 JWT 로만 위임한다(API 키 불가). 관리 콘솔 권한이 있는 역할은 `amr` 에 `otp`·`hwk` 가 있는 토큰이어야 한다. 위임자 본인이나 관리자(`DELEGATION` UPDATE)가 회수하면 위임 할당도 바로 회수된다 |
 | 비상 접근 | 정책별 사유·MFA·승인 요구. 승인이 필요 없으면 즉시, 필요하면 승인 후 최대 시간만큼 `ROLE_ASSIGNMENT(BREAK_GLASS)` 생성. 최대 24시간. `eligible_group_id`(V23)가 있으면 켜진 그 그룹의 지금 유효한 구성원만 시작·요청할 수 있고, 그룹이 꺼져 있으면 아무도 못 쓴다. 관리 콘솔 권한이 있는 역할을 주는 정책은 승인 필요로만 만들고 고치고 켤 수 있으며, 승인 없이 시작하는 정책이 쓰는 역할에는 콘솔 권한을 더할 수 없다(MFA 만으로 누구나 관리자가 되지 않게). 본인이나 관리자가 끝내면 세션 `REVOKED`, 할당 회수 |

@@ -18,6 +18,7 @@ import com.didrakon.iam.common.context.RequestContextHolder
 import com.didrakon.iam.common.error.BusinessRuleException
 import com.didrakon.iam.config.IamBootstrap
 import com.didrakon.iam.governance.breakglass.BreakGlassPolicyRepository
+import com.didrakon.iam.governance.request.ConsoleRoles
 import com.didrakon.iam.governance.review.ConsoleAdministrators
 import com.didrakon.iam.identity.organization.SubjectOrganizationRepository
 import com.didrakon.iam.identity.subject.SubjectRepository
@@ -76,7 +77,7 @@ class AdminAuthorizer(
     private val policyRepository: PolicyRepository,
     private val breakGlassPolicyRepository: BreakGlassPolicyRepository,
     private val clock: Clock,
-) : ConsoleAdministrators {
+) : ConsoleAdministrators, ConsoleRoles {
     private val log = LoggerFactory.getLogger(javaClass)
     private val resourceIds = ConcurrentHashMap<String, Long>()
 
@@ -92,7 +93,8 @@ class AdminAuthorizer(
                 resourceId = resourceId(resourceKey),
                 action = action,
                 orgId = orgId,
-                context = mapOf("ipAddress" to ipAddress),
+                // 위험 평가는 ip 를, ABAC 규칙은 예전부터 ipAddress 를 읽으므로 둘 다 넣는다
+                context = mapOf("ip" to ipAddress, "ipAddress" to ipAddress),
                 session = mapOf("amr" to ApiPrincipal.authenticationMethods()),
                 traceId = RequestContextHolder.current()?.traceId,
             ),
@@ -201,7 +203,7 @@ class AdminAuthorizer(
     }
 
     /** 역할에 지금 유효한 IAM 관리 리소스 권한이 있는지 */
-    fun isConsoleRole(roleId: Long): Boolean {
+    override fun isConsoleRole(roleId: Long): Boolean {
         val now = clock.instant()
         val permissionIds = rolePermissionRepository.findByRoleId(roleId)
             .filter { it.validUntil?.isAfter(now) ?: true }.map { it.permissionId }

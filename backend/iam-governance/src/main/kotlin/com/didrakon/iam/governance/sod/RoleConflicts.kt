@@ -272,7 +272,11 @@ class RoleConflictService(
         if (conflictRepository.findByRoleIdAAndRoleIdB(conflict.roleIdA, conflict.roleIdB) != null) {
             throw BusinessRuleException("이미 정의된 역할 충돌입니다")
         }
-        return conflictRepository.save(conflict)
+        val saved = conflictRepository.save(conflict)
+        eventPublisher.publishEvent(
+            AdminChangeEvent("ROLE_CONFLICT", saved.requireId(), "CREATE", null, mapOf("roleIdA" to saved.roleIdA, "roleIdB" to saved.roleIdB) + snapshot(saved)),
+        )
+        return saved
     }
 
     fun grantException(conflictId: Long, subjectId: Long, approvedBy: Long, reason: String, validUntil: Instant?): RoleConflictException {
@@ -280,7 +284,15 @@ class RoleConflictService(
         if (!subjectRepository.existsById(subjectId)) throw NotFoundException("subject", subjectId)
         if (reason.isBlank()) throw BusinessRuleException("예외 사유가 필요합니다")
         if (approvedBy == subjectId) throw BusinessRuleException("본인의 직무 분리 예외는 승인할 수 없습니다")
-        return exceptionRepository.save(RoleConflictException(conflictId, subjectId, approvedBy, reason, clock.instant(), validUntil))
+        val exception = exceptionRepository.save(RoleConflictException(conflictId, subjectId, approvedBy, reason, clock.instant(), validUntil))
+        // 예외는 그 사람에게 직무 분리를 끄는 것과 같으므로 기준 데이터 변경으로 남긴다
+        eventPublisher.publishEvent(
+            AdminChangeEvent(
+                "ROLE_CONFLICT", conflictId, "ADD_EXCEPTION", null,
+                mapOf("exceptionId" to exception.requireId(), "subjectId" to subjectId, "approvedBy" to approvedBy, "reason" to reason, "validUntil" to validUntil?.toString()),
+            ),
+        )
+        return exception
     }
 
     @Transactional(readOnly = true)

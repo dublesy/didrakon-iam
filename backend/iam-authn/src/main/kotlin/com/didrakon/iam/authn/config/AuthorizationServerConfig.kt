@@ -24,6 +24,7 @@ import com.didrakon.iam.authn.passkey.PasskeyLoginSuccessHandler
 import com.didrakon.iam.authn.passkey.PasskeyPageController
 import com.didrakon.iam.authn.passkey.PasskeyRegistrationGuardFilter
 import com.didrakon.iam.authn.session.LoginSessionService
+import com.didrakon.iam.authn.token.OwnTokenIntrospection
 import com.didrakon.iam.authn.token.HashingOAuth2AuthorizationService
 import com.nimbusds.jose.jwk.JWKSet
 import com.nimbusds.jose.jwk.RSAKey
@@ -46,6 +47,7 @@ import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.security.oauth2.jwt.JwtDecoder
 import org.springframework.security.oauth2.jwt.JwtValidators
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder
+import org.springframework.security.oauth2.server.authorization.authentication.OAuth2TokenIntrospectionAuthenticationProvider
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationConsentService
 import org.springframework.security.oauth2.server.authorization.JdbcOAuth2AuthorizationService
 import org.springframework.security.oauth2.server.authorization.OAuth2AuthorizationConsentService
@@ -104,6 +106,12 @@ class AuthorizationServerConfig(
         http
             .oauth2AuthorizationServer { server ->
                 http.securityMatcher(server.endpointsMatcher)
+                // 토큰 검사는 그 토큰을 받은 클라이언트만 (OwnTokenIntrospection)
+                server.tokenIntrospectionEndpoint { endpoint ->
+                    endpoint.authenticationProviders { providers ->
+                        providers.replaceAll { if (it is OAuth2TokenIntrospectionAuthenticationProvider) OwnTokenIntrospection(it) else it }
+                    }
+                }
                 server.oidc { oidc ->
                     oidc.logoutEndpoint { it.logoutResponseHandler(oidcLogoutResponse) }
                     // OIDC Back-Channel Logout: 등록한 클라이언트에 로그아웃 토큰을 보내고, 세션 단위면 sid 를 넣는다

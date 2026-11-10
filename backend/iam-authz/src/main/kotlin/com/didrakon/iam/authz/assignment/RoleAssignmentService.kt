@@ -153,9 +153,9 @@ class RoleAssignmentService(
         publish(assignment, RoleChangeType.REVIEW, reviewedBy, reason)
     }
 
-    /** 퇴사: 출처와 관계없이 지금 유효한 할당을 모두 회수한다 */
+    /** 퇴사: 출처와 관계없이 지금 유효하거나 앞으로 시작할 할당(승인된 JIT·시작 전 위임)을 모두 회수한다 */
     fun revokeAllFor(subjectId: Long, reason: String) {
-        assignmentRepository.findEffective(subjectId, clock.instant()).forEach { revokeAssignment(it, null, reason) }
+        assignmentRepository.findCurrentOrUpcoming(subjectId, clock.instant()).forEach { revokeAssignment(it, null, reason) }
     }
 
     /** 부여 시 scope 를 지정하지 않으면 쓰는 GLOBAL scope ID */
