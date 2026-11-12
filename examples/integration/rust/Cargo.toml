@@ -9,7 +9,7 @@ axum = "0.8"
 axum-extra = { version = "0.10", features = ["cookie"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 openidconnect = { version = "4", default-features = false, features = ["reqwest", "rustls-tls"] }
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
